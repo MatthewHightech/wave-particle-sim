@@ -1,9 +1,10 @@
 import { WebGPUContext } from './core/WebGPUContext';
-import triangleShaderCode from './shaders/triangle.wgsl?raw';
+import { ParticleRenderer } from './rendering/ParticleRenderer';
 
 export class Engine {
   private gpu: WebGPUContext | null = null;
-  private pipeline: GPURenderPipeline | null = null;
+  private renderer: ParticleRenderer | null = null;
+  private posBuffer: GPUBuffer | null = null;
   private animationFrameId: number | null = null;
   private isDestroyed = false;
 
@@ -14,14 +15,13 @@ export class Engine {
     try {
       const gpu = await WebGPUContext.create(canvas, onError);
 
-      // Guard against React StrictMode unmounting while awaiting GPU initialization
       if (this.isDestroyed) {
         gpu.destroy();
         return;
       }
 
       this.gpu = gpu;
-      this.createPipeline();
+      this.initParticles();
       this.startLoop();
     } catch (err) {
       if (!this.isDestroyed) {
@@ -30,31 +30,40 @@ export class Engine {
     }
   }
 
-  private createPipeline(): void {
+  private initParticles(): void {
     if (!this.gpu) return;
     const { device, format } = this.gpu;
 
-    const shaderModule = device.createShaderModule({
-      label: 'Hello Triangle Shader',
-      code: triangleShaderCode,
-    });
+    // Spawn a dam-break block on the left side of the 64x64 grid
+    const points: number[] = [];
+    const spacing = 0.5; // 4 particles per grid cell
 
-    this.pipeline = device.createRenderPipeline({
-      label: 'Hello Triangle Pipeline',
-      layout: 'auto',
-      vertex: {
-        module: shaderModule,
-        entryPoint: 'vs_main',
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: 'fs_main',
-        targets: [{ format }],
-      },
-      primitive: {
-        topology: 'triangle-list',
-      },
+    for (let x = 4; x < 28; x += spacing) {
+      for (let y = 4; y < 44; y += spacing) {
+        // Tiny jitter prevents unnatural grid-aligned stacking artifacts later
+        const jitterX = (Math.random() - 0.5) * 0.1;
+        const jitterY = (Math.random() - 0.5) * 0.1;
+        points.push(x + jitterX, y + jitterY);
+      }
+    }
+
+    const numParticles = points.length / 2;
+    const posArray = new Float32Array(points);
+
+    // Note: STORAGE | COPY_DST allows compute shaders to read/write later
+    this.posBuffer = device.createBuffer({
+      label: 'Particle Positions Buffer',
+      size: posArray.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+    device.queue.writeBuffer(this.posBuffer, 0, posArray);
+
+    this.renderer = new ParticleRenderer(
+      device,
+      format,
+      this.posBuffer,
+      numParticles
+    );
   }
 
   private startLoop(): void {
@@ -67,10 +76,9 @@ export class Engine {
   }
 
   private render(): void {
-    if (!this.gpu || !this.pipeline) return;
+    if (!this.gpu || !this.renderer) return;
     const { device, context } = this.gpu;
 
-    // Skip rendering if canvas is collapsed to 0x0 during layout transitions
     const currentTexture = context.getCurrentTexture();
     if (currentTexture.width === 0 || currentTexture.height === 0) return;
 
@@ -86,8 +94,11 @@ export class Engine {
       ],
     });
 
-    renderPass.setPipeline(this.pipeline);
-    renderPass.draw(3); // 3 vertices, 1 instance
+    this.renderer.render(
+      renderPass,
+      currentTexture.width,
+      currentTexture.height
+    );
     renderPass.end();
 
     device.queue.submit([commandEncoder.finish()]);
@@ -98,6 +109,8 @@ export class Engine {
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
     }
+    this.renderer?.destroy();
+    this.posBuffer?.destroy();
     this.gpu?.destroy();
     this.gpu = null;
   }
