@@ -1,6 +1,7 @@
 import { WebGPUContext } from './core/WebGPUContext';
 import { ParticleRenderer } from './rendering/ParticleRenderer';
 import { MlsMpmSolver } from './simulation/MlsMpmSolver';
+import { SIM_CONFIG } from './simulation/SimConstants';
 
 export class Engine {
   private gpu: WebGPUContext | null = null;
@@ -35,38 +36,49 @@ export class Engine {
   private initParticles(): void {
     if (!this.gpu) return;
     const { device, format } = this.gpu;
-
-    // Spawn a dam-break block on the left side of the 64x64 grid
+  
     const points: number[] = [];
+    const jValues: number[] = [];
+  
+    // Match the 2-cell boundary padding used in updateGrid.wgsl and g2p.wgsl
+    const minX = 2.5;
+    const maxX = SIM_CONFIG.GRID_WIDTH - 2.5;
+    const minY = 2.5;
+    const waterSurfaceY = SIM_CONFIG.GRID_HEIGHT * 0.5; // Half-full tank (y = 32)
     const spacing = 0.5; // 4 particles per grid cell
-
-    for (let x = 4; x < 28; x += spacing) {
-      for (let y = 4; y < 44; y += spacing) {
-        // Tiny jitter prevents unnatural grid-aligned stacking artifacts later
-        const jitterX = (Math.random() - 0.5) * 0.1;
-        const jitterY = (Math.random() - 0.5) * 0.1;
+  
+    // Pre-calculate hydrostatic compression factor so water starts calm instead of bouncing
+    // At rest: pressure = stiffness * (1 - J) balances weight of water column above y
+    // Since 4 particles occupy 1 unit area, mass density rho = 4.0
+    const rho = 4.0;
+    const gravityMag = Math.abs(SIM_CONFIG.GRAVITY);
+  
+    for (let x = minX; x < maxX; x += spacing) {
+      for (let y = minY; y < waterSurfaceY; y += spacing) {
+        const jitterX = (Math.random() - 0.5) * 0.08;
+        const jitterY = (Math.random() - 0.5) * 0.08;
         points.push(x + jitterX, y + jitterY);
+  
+        const depth = waterSurfaceY - y;
+        const hydrostaticPressure = rho * gravityMag * depth;
+        const initialJ = Math.max(0.75, 1.0 - hydrostaticPressure / SIM_CONFIG.STIFFNESS);
+        jValues.push(initialJ);
       }
     }
-
+  
     const numParticles = points.length / 2;
     const posArray = new Float32Array(points);
-
-    // Note: STORAGE | COPY_DST allows compute shaders to read/write later
+    const jArray = new Float32Array(jValues);
+  
     this.posBuffer = device.createBuffer({
       label: 'Particle Positions Buffer',
       size: posArray.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    this.solver = new MlsMpmSolver(device, this.posBuffer, numParticles);
     device.queue.writeBuffer(this.posBuffer, 0, posArray);
-
-    this.renderer = new ParticleRenderer(
-      device,
-      format,
-      this.posBuffer,
-      numParticles
-    );
+  
+    this.solver = new MlsMpmSolver(device, this.posBuffer, jArray, numParticles);
+    this.renderer = new ParticleRenderer(device, format, this.posBuffer, numParticles);
   }
 
   private startLoop(): void {

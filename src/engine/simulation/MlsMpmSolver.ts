@@ -26,7 +26,7 @@ export class MlsMpmSolver {
   private updateGridBindGroup: GPUBindGroup;
   private g2pBindGroup: GPUBindGroup;
 
-  constructor(device: GPUDevice, posBuffer: GPUBuffer, numParticles: number) {
+  constructor(device: GPUDevice, posBuffer: GPUBuffer, jArray: Float32Array, numParticles: number) {
     this.device = device;
     this.numParticles = numParticles;
     this.numGridCells = SIM_CONFIG.GRID_WIDTH * SIM_CONFIG.GRID_HEIGHT;
@@ -44,13 +44,12 @@ export class MlsMpmSolver {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const jInit = new Float32Array(numParticles).fill(1.0);
     this.jBuffer = device.createBuffer({
-      label: 'Volume Ratio J Buffer',
-      size: jInit.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.jBuffer, 0, jInit);
+        label: 'Volume Ratio J Buffer',
+        size: jArray.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+    device.queue.writeBuffer(this.jBuffer, 0, jArray);
 
     // 2. Grid buffer: 3 x i32 (12 bytes) per cell
     this.gridBuffer = device.createBuffer({
