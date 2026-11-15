@@ -1,5 +1,6 @@
 import { WebGPUContext } from './core/WebGPUContext';
 import { ParticleRenderer } from './rendering/ParticleRenderer';
+import { MlsMpmSolver } from './simulation/MlsMpmSolver';
 
 export class Engine {
   private gpu: WebGPUContext | null = null;
@@ -7,6 +8,7 @@ export class Engine {
   private posBuffer: GPUBuffer | null = null;
   private animationFrameId: number | null = null;
   private isDestroyed = false;
+  private solver: MlsMpmSolver | null = null;
 
   public async init(
     canvas: HTMLCanvasElement,
@@ -56,6 +58,7 @@ export class Engine {
       size: posArray.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+    this.solver = new MlsMpmSolver(device, this.posBuffer, numParticles);
     device.queue.writeBuffer(this.posBuffer, 0, posArray);
 
     this.renderer = new ParticleRenderer(
@@ -76,13 +79,14 @@ export class Engine {
   }
 
   private render(): void {
-    if (!this.gpu || !this.renderer) return;
+    if (!this.gpu || !this.renderer || !this.solver) return;
     const { device, context } = this.gpu;
 
     const currentTexture = context.getCurrentTexture();
     if (currentTexture.width === 0 || currentTexture.height === 0) return;
 
     const commandEncoder = device.createCommandEncoder();
+    this.solver.step(commandEncoder);
     const renderPass = commandEncoder.beginRenderPass({
       colorAttachments: [
         {
@@ -111,6 +115,7 @@ export class Engine {
     }
     this.renderer?.destroy();
     this.posBuffer?.destroy();
+    this.solver?.destroy();
     this.gpu?.destroy();
     this.gpu = null;
   }
