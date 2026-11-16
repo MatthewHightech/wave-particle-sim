@@ -12,14 +12,11 @@ export function SimulationCanvas() {
     const engine = new Engine();
     engine.init(canvas, (errMsg) => setError(errMsg));
 
-    // Keep backing buffer resolution sharp on Retina/HiDPI displays
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const dpr = window.devicePixelRatio || 1;
-        const width = Math.max(1, Math.floor(entry.contentRect.width * dpr));
-        const height = Math.max(1, Math.floor(entry.contentRect.height * dpr));
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = Math.max(1, Math.floor(entry.contentRect.width * dpr));
+        canvas.height = Math.max(1, Math.floor(entry.contentRect.height * dpr));
       }
     });
 
@@ -33,21 +30,12 @@ export function SimulationCanvas() {
 
   if (error) {
     return (
-      <div style={{ padding: '2rem', color: '#ff6b6b', fontFamily: 'monospace' }}>
-        <h3>WebGPU Initialization Failed</h3>
-        <p>{error}</p>
+      <div className="p-8 font-mono text-[#ff6b6b]">
+        <h3 className="text-lg font-semibold">WebGPU Initialization Failed</h3>
+        <p className="mt-2">{error}</p>
       </div>
     );
   }
 
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        width: '100vw',
-        height: '100vh',
-        display: 'block',
-      }}
-    />
-  );
+  return <canvas ref={canvasRef} className="block h-screen w-screen" />;
 }

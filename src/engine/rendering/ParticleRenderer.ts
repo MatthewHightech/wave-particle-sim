@@ -17,7 +17,6 @@ export class ParticleRenderer {
     this.device = device;
     this.numParticles = numParticles;
 
-    // 4 floats = 16 bytes (aligned to 16-byte WebGPU uniform requirement)
     this.uniformBuffer = device.createBuffer({
       label: 'Render Uniform Buffer',
       size: 16,
@@ -73,18 +72,19 @@ export class ParticleRenderer {
   }
 
   public render(renderPass: GPURenderPassEncoder, width: number, height: number): void {
-    const aspectRatio = width / height;
-    const uniformData = new Float32Array([
-      SIM_CONFIG.GRID_WIDTH,
-      SIM_CONFIG.GRID_HEIGHT,
-      SIM_CONFIG.PARTICLE_RADIUS,
-      aspectRatio,
-    ]);
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+    this.device.queue.writeBuffer(
+      this.uniformBuffer,
+      0,
+      new Float32Array([
+        SIM_CONFIG.DOMAIN_WIDTH,
+        SIM_CONFIG.DOMAIN_HEIGHT,
+        SIM_CONFIG.PARTICLE_RADIUS,
+        width / height,
+      ])
+    );
 
     renderPass.setPipeline(this.pipeline);
     renderPass.setBindGroup(0, this.bindGroup);
-    // Draw 6 vertices (1 quad) instanced numParticles times
     renderPass.draw(6, this.numParticles);
   }
 
