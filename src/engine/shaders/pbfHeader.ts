@@ -22,7 +22,6 @@ const HASH_CELL_SIZE: f32 = ${SIM_CONFIG.HASH_CELL_SIZE};
 const HASH_WIDTH: i32 = ${SIM_CONFIG.HASH_WIDTH};
 const HASH_HEIGHT: i32 = ${SIM_CONFIG.HASH_HEIGHT};
 const MAX_PER_CELL: i32 = ${SIM_CONFIG.MAX_PER_CELL};
-const PARTICLE_MIN_X: f32 = ${domain.minX};
 const PARTICLE_MAX_X: f32 = ${domain.maxX};
 const PARTICLE_MIN_Y: f32 = ${domain.minY};
 const PARTICLE_MAX_Y: f32 = ${domain.maxY};
@@ -32,7 +31,11 @@ struct PbfUniforms {
   dt: f32,
   gravity: f32,
   numParticles: u32,
-  _pad: u32,
+  _pad0: u32,
+  leftWallX: f32,
+  leftWallVx: f32,
+  _pad1: f32,
+  _pad2: f32,
 };
 
 fn poly6(r2: f32) -> f32 {
@@ -59,8 +62,39 @@ fn cell_index(c: vec2i) -> u32 {
   return u32(c.y * HASH_WIDTH + c.x);
 }
 
-fn clamp_to_domain(p: vec2f) -> vec2f {
-  return clamp(p, vec2f(PARTICLE_MIN_X, PARTICLE_MIN_Y), vec2f(PARTICLE_MAX_X, PARTICLE_MAX_Y));
+fn clamp_to_domain(p: vec2f, leftWallX: f32) -> vec2f {
+  return clamp(
+    p,
+    vec2f(leftWallX, PARTICLE_MIN_Y),
+    vec2f(PARTICLE_MAX_X, PARTICLE_MAX_Y)
+  );
+}
+
+fn apply_moving_left_wall(p: vec2f, v: vec2f, leftWallX: f32, leftWallVx: f32) -> vec4f {
+  var pos = p;
+  var vel = v;
+
+  if (pos.x < leftWallX) {
+    pos.x = leftWallX;
+    if (vel.x < leftWallVx) {
+      vel.x = leftWallVx;
+    }
+  }
+
+  if (pos.x > PARTICLE_MAX_X) {
+    pos.x = PARTICLE_MAX_X;
+    if (vel.x > 0.0) { vel.x = 0.0; }
+  }
+  if (pos.y < PARTICLE_MIN_Y) {
+    pos.y = PARTICLE_MIN_Y;
+    if (vel.y < 0.0) { vel.y = 0.0; }
+  }
+  if (pos.y > PARTICLE_MAX_Y) {
+    pos.y = PARTICLE_MAX_Y;
+    if (vel.y > 0.0) { vel.y = 0.0; }
+  }
+
+  return vec4f(pos, vel);
 }
 
 fn limit_delta(delta: vec2f) -> vec2f {

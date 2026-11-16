@@ -10,7 +10,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= params.numParticles) { return; }
 
-  let newPos = predicted[i];
+  var newPos = predicted[i];
   var newVel = (newPos - pos[i]) / max(params.dt, 1e-8);
 
   let ci = cell_coord(newPos);
@@ -59,11 +59,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   newVel *= max(0.0, 1.0 - VELOCITY_DAMPING * params.dt);
 
-  if (newPos.x <= PARTICLE_MIN_X && newVel.x < 0.0) { newVel.x = 0.0; }
-  if (newPos.x >= PARTICLE_MAX_X && newVel.x > 0.0) { newVel.x = 0.0; }
-  if (newPos.y <= PARTICLE_MIN_Y && newVel.y < 0.0) { newVel.y = 0.0; }
-  if (newPos.y >= PARTICLE_MAX_Y && newVel.y > 0.0) { newVel.y = 0.0; }
+  let collided = apply_moving_left_wall(
+    newPos,
+    newVel,
+    params.leftWallX,
+    params.leftWallVx
+  );
 
-  pos[i] = newPos;
-  vel[i] = newVel;
+  pos[i] = collided.xy;
+  vel[i] = collided.zw;
 }

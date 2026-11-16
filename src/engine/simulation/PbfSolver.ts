@@ -6,12 +6,13 @@ import computeLambdaCode from '../shaders/pbfComputeLambda.wgsl?raw';
 import computeDeltaCode from '../shaders/pbfComputeDelta.wgsl?raw';
 import applyDeltaCode from '../shaders/pbfApplyDelta.wgsl?raw';
 import finalizeCode from '../shaders/pbfFinalize.wgsl?raw';
-import { SIM_CONFIG } from './SimConstants';
+import { leftWallState, SIM_CONFIG } from './SimConstants';
 
 export class PbfSolver {
   private device: GPUDevice;
   private numParticles: number;
   private numHashCells: number;
+  private simTime = 0;
 
   private velBuffer: GPUBuffer;
   private predictedBuffer: GPUBuffer;
@@ -81,10 +82,10 @@ export class PbfSolver {
 
     this.uniformBuffer = device.createBuffer({
       label: 'PBF Uniforms',
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.writeUniforms();
+    this.writeUniforms(0);
 
     this.clearHashPipeline = this.makePipeline('PbfClearHash', clearHashCode);
     this.buildHashPipeline = this.makePipeline('PbfBuildHash', buildHashCode);
@@ -176,14 +177,19 @@ export class PbfSolver {
     });
   }
 
-  private writeUniforms(): void {
-    const data = new ArrayBuffer(16);
+  private writeUniforms(timeSeconds: number): void {
+    const wall = leftWallState(timeSeconds);
+    const data = new ArrayBuffer(32);
     const f32 = new Float32Array(data);
     const u32 = new Uint32Array(data);
     f32[0] = SIM_CONFIG.DT;
     f32[1] = SIM_CONFIG.GRAVITY;
     u32[2] = this.numParticles;
     u32[3] = 0;
+    f32[4] = wall.x;
+    f32[5] = wall.vx;
+    f32[6] = 0;
+    f32[7] = 0;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 
@@ -204,6 +210,9 @@ export class PbfSolver {
     const particleGroups = Math.ceil(this.numParticles / 64);
 
     for (let s = 0; s < SIM_CONFIG.SUBSTEPS; s++) {
+      this.writeUniforms(this.simTime);
+      this.simTime += SIM_CONFIG.DT;
+
       const pass = commandEncoder.beginComputePass();
 
       pass.setPipeline(this.integratePipeline);

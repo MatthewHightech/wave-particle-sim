@@ -10,7 +10,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   var v = vel[i];
   v.y += params.gravity * params.dt;
-  vel[i] = v;
 
-  predicted[i] = clamp_to_domain(pos[i] + v * params.dt);
+  var predictedPos = pos[i] + v * params.dt;
+  let collided = apply_moving_left_wall(
+    predictedPos,
+    v,
+    params.leftWallX,
+    params.leftWallVx
+  );
+
+  predicted[i] = collided.xy;
+  vel[i] = collided.zw;
 }

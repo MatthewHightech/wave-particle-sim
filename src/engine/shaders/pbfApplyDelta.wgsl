@@ -6,5 +6,7 @@
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= params.numParticles) { return; }
-  predicted[i] = clamp_to_domain(predicted[i] + deltaPos[i]);
+
+  let moved = predicted[i] + deltaPos[i];
+  predicted[i] = clamp_to_domain(moved, params.leftWallX);
 }

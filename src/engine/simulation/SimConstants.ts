@@ -5,6 +5,9 @@ const H = PARTICLE_SPACING * 2.2;
 const MASS = 1.0;
 const CELL_SIZE_METERS = 0.05;
 const GRAVITY_MPS2 = -9.8;
+const BOUNDARY = H;
+const WAVE_MAKER_AMPLITUDE = 2.0;
+const WAVE_MAKER_FREQUENCY_HZ = 0.85;
 
 function poly6(r2: number, h: number): number {
   const h2 = h * h;
@@ -37,7 +40,11 @@ export const SIM_CONFIG = {
   H,
   MASS,
   REST_DENSITY,
-  BOUNDARY: H,
+  BOUNDARY,
+  WAVE_MAKER_AMPLITUDE,
+  WAVE_MAKER_FREQUENCY_HZ,
+  WAVE_MAKER_OMEGA: 2 * Math.PI * WAVE_MAKER_FREQUENCY_HZ,
+  LEFT_WALL_BASE: BOUNDARY,
   HASH_CELL_SIZE: H,
   HASH_WIDTH: Math.ceil(DOMAIN_WIDTH / H),
   HASH_HEIGHT: Math.ceil(DOMAIN_HEIGHT / H),
@@ -56,15 +63,24 @@ export const SIM_CONFIG = {
   TENSILE_N: 4,
   XSPH: 0.25,
   VISCOSITY: 0.08,
-  VELOCITY_DAMPING: 1.5,
+  VELOCITY_DAMPING: 1.2,
 } as const;
 
 export function particleDomain() {
   const b = SIM_CONFIG.BOUNDARY;
   return {
-    minX: b,
+    minX: SIM_CONFIG.LEFT_WALL_BASE + SIM_CONFIG.WAVE_MAKER_AMPLITUDE,
     maxX: SIM_CONFIG.DOMAIN_WIDTH - b,
     minY: b,
     maxY: SIM_CONFIG.DOMAIN_HEIGHT - b,
+  };
+}
+
+export function leftWallState(timeSeconds: number) {
+  const { LEFT_WALL_BASE, WAVE_MAKER_AMPLITUDE, WAVE_MAKER_OMEGA } = SIM_CONFIG;
+  const phase = WAVE_MAKER_OMEGA * timeSeconds;
+  return {
+    x: LEFT_WALL_BASE + WAVE_MAKER_AMPLITUDE * Math.sin(phase),
+    vx: WAVE_MAKER_AMPLITUDE * WAVE_MAKER_OMEGA * Math.cos(phase),
   };
 }
