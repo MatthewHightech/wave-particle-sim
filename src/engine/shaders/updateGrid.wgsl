@@ -19,15 +19,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   v.y += params.gravity * params.dt;
   v *= (1.0 - params.viscosity * params.dt);
 
-  // Enforce box boundaries (2-cell border)
+  // Enforce box boundaries (3-cell border matches the 3x3 B-spline stencil)
   let x = i32(idx) % GRID_WIDTH;
   let y = i32(idx) / GRID_WIDTH;
 
-  if (x < 2 && v.x < 0.0) { v.x = 0.0; }
-  if (x > GRID_WIDTH - 3 && v.x > 0.0) { v.x = 0.0; }
-  if (y < 2 && v.y < 0.0) { v.y = 0.0; }
-  if (y > GRID_HEIGHT - 3 && v.y > 0.0) { v.y = 0.0; }
+  if (x < 3 && v.x < 0.0) { v.x = 0.0; v.y *= 0.95; }
+  if (x > GRID_WIDTH - 4 && v.x > 0.0) { v.x = 0.0; v.y *= 0.95; }
+  if (y < 3 && v.y < 0.0) { v.y = 0.0; v.x *= 0.95; }
+  if (y > GRID_HEIGHT - 4 && v.y > 0.0) { v.y = 0.0; v.x *= 0.95; }
 
-  atomicStore(&grid[idx].vx, i32(v.x * FIXED_POINT));
-  atomicStore(&grid[idx].vy, i32(v.y * FIXED_POINT));
+  atomicStore(&grid[idx].vx, i32(round(v.x * FIXED_POINT)));
+  atomicStore(&grid[idx].vy, i32(round(v.y * FIXED_POINT)));
 }

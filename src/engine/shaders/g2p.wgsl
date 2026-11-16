@@ -22,6 +22,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   var newVel = vec2f(0.0);
   var newC = mat2x2f(0.0, 0.0, 0.0, 0.0);
+  var localMass = 0.0;
 
   for (var gx = 0; gx < 3; gx++) {
     for (var gy = 0; gy < 3; gy++) {
@@ -39,6 +40,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         f32(atomicLoad(&grid[flatIdx].vy))
       ) / FIXED_POINT;
 
+      // Read actual local mass density from the grid
+      let nodeMass = f32(atomicLoad(&grid[flatIdx].mass)) / FIXED_POINT;
+      localMass += weight * nodeMass;
+
       newVel += weight * gridVel;
       newC += 4.0 * weight * mat2x2f(
         gridVel.x * dpos.x, gridVel.y * dpos.x,
@@ -47,18 +52,57 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
   }
 
+  newVel = mix(newVel, vel[p] * 0.9, 0.05);
   var newPos = x + newVel * params.dt;
-  newPos = clamp(
-    newPos,
-    vec2f(2.001, 2.001),
-    vec2f(f32(GRID_WIDTH) - 3.001, f32(GRID_HEIGHT) - 3.001)
-  );
+
+  // Keep particles 0.5 cells inside the outermost active grid nodes (3 and GRID_WIDTH - 4)
+  // so their 3x3 stencils never split across zero-velocity wall nodes
+  let minBound = 3.5;
+  let maxBoundX = f32(GRID_WIDTH) - 4.5; // 59.5 (symmetric with 3.5 around [3..60])
+  let maxBoundY = f32(GRID_HEIGHT) - 4.5;
+
+  if (newPos.x < minBound) {
+    newPos.x = minBound;
+    if (newVel.x < 0.0) { newVel.x = 0.0; }
+    newC[0][0] = 0.0;
+    newC[1][0] = 0.0;
+  } else if (newPos.x > maxBoundX) {
+    newPos.x = maxBoundX;
+    if (newVel.x > 0.0) { newVel.x = 0.0; }
+    newC[0][0] = 0.0;
+    newC[1][0] = 0.0;
+  }
+
+  if (newPos.y < minBound) {
+    newPos.y = minBound;
+    if (newVel.y < 0.0) { newVel.y = 0.0; }
+    newC[0][1] = 0.0;
+    newC[1][1] = 0.0;
+  } else if (newPos.y > maxBoundY) {
+    newPos.y = maxBoundY;
+    if (newVel.y > 0.0) { newVel.y = 0.0; }
+    newC[0][1] = 0.0;
+    newC[1][1] = 0.0;
+  }
 
   let traceC = newC[0][0] + newC[1][1];
-  let newJ = clamp(jBuffer[p] * (1.0 + params.dt * traceC), 0.6, 1.4);
+  // Prevent artificial volume expansion (advectedJ > 1.0) caused by wall-stencil shear
+  let clampedTrace = min(traceC, 0.2);
+  let advectedJ = jBuffer[p] * (1.0 + params.dt * clampedTrace);
+
+  var targetJ = advectedJ;
+  if (localMass > 0.85) {
+    let gridBasedJ = 1.0 / localMass;
+    targetJ = mix(advectedJ, gridBasedJ, 0.05);
+  } else {
+    // Near free surfaces and walls, gently relax J back toward 1.0 instead of letting it stay inflated
+    targetJ = mix(advectedJ, 1.0, 0.02);
+  }
+
+  let newJ = clamp(targetJ, 0.7, 1.05);
 
   pos[p] = newPos;
   vel[p] = newVel;
-  cMatrix[p] = newC;
+  cMatrix[p] = newC * 0.985; // Physical shear damping stops spurious vortex spin-up
   jBuffer[p] = newJ;
 }

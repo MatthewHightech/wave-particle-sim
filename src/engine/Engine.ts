@@ -41,27 +41,27 @@ export class Engine {
     const jValues: number[] = [];
   
     // Match the 2-cell boundary padding used in updateGrid.wgsl and g2p.wgsl
-    const minX = 2.5;
-    const maxX = SIM_CONFIG.GRID_WIDTH - 2.5;
-    const minY = 2.5;
-    const waterSurfaceY = SIM_CONFIG.GRID_HEIGHT * 0.5; // Half-full tank (y = 32)
-    const spacing = 0.5; // 4 particles per grid cell
+    const minX = 3.5;
+    const maxX = SIM_CONFIG.GRID_WIDTH - 4.5;
+    const minY = 3.5;
+    const waterSurfaceY = SIM_CONFIG.GRID_HEIGHT * 0.5;
+    const spacing = 0.5;
   
     // Pre-calculate hydrostatic compression factor so water starts calm instead of bouncing
     // At rest: pressure = stiffness * (1 - J) balances weight of water column above y
-    // Since 4 particles occupy 1 unit area, mass density rho = 4.0
-    const rho = 4.0;
-    const gravityMag = Math.abs(SIM_CONFIG.GRAVITY);
-  
+    const gravityMag = Math.abs(SIM_CONFIG.GRAVITY); // 9.8
+
     for (let x = minX; x < maxX; x += spacing) {
       for (let y = minY; y < waterSurfaceY; y += spacing) {
         const jitterX = (Math.random() - 0.5) * 0.08;
         const jitterY = (Math.random() - 0.5) * 0.08;
         points.push(x + jitterX, y + jitterY);
-  
+    
+
         const depth = waterSurfaceY - y;
-        const hydrostaticPressure = rho * gravityMag * depth;
-        const initialJ = Math.max(0.75, 1.0 - hydrostaticPressure / SIM_CONFIG.STIFFNESS);
+        const hydrostaticPressure = 1.0 * gravityMag * depth;
+        // Inverse of P = k * (1 / J^7 - 1)
+        const initialJ = Math.pow(1.0 + hydrostaticPressure / SIM_CONFIG.STIFFNESS, -1.0 / 7.0);
         jValues.push(initialJ);
       }
     }
