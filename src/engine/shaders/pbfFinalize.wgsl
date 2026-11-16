@@ -15,6 +15,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   let ci = cell_coord(newPos);
   var xsph = vec2f(0.0);
+  var visc = vec2f(0.0);
+  var wSum = 0.0;
 
   for (var ox = -1; ox <= 1; ox++) {
     for (var oy = -1; oy <= 1; oy++) {
@@ -32,13 +34,30 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         let r = newPos - predicted[j];
         let r2 = dot(r, r);
         let w = poly6(r2);
+        if (w <= 0.0) { continue; }
+
         let vj = (predicted[j] - pos[j]) / max(params.dt, 1e-8);
-        xsph += (vj - newVel) * w;
+        let vji = vj - newVel;
+        xsph += vji * w;
+        wSum += w;
+
+        let rLen = sqrt(r2);
+        if (rLen > 1e-6) {
+          let closing = dot(vji, r);
+          if (closing < 0.0) {
+            visc += (closing / rLen) * (r / rLen) * w;
+          }
+        }
       }
     }
   }
 
-  newVel += XSPH * xsph;
+  if (wSum > 1e-8) {
+    newVel += XSPH * (xsph / wSum);
+    newVel += VISCOSITY * (visc / wSum);
+  }
+
+  newVel *= max(0.0, 1.0 - VELOCITY_DAMPING * params.dt);
 
   if (newPos.x <= PARTICLE_MIN_X && newVel.x < 0.0) { newVel.x = 0.0; }
   if (newPos.x >= PARTICLE_MAX_X && newVel.x > 0.0) { newVel.x = 0.0; }
