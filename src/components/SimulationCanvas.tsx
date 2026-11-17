@@ -1,16 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
 import { Engine } from '../engine/Engine';
+import { SIM_CONFIG } from '../engine/simulation/SimConstants';
+import { SimControls } from './SimControls';
 
 export function SimulationCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const engineRef = useRef<Engine | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [running, setRunning] = useState(true);
+  const [amplitude, setAmplitude] = useState<number>(
+    SIM_CONFIG.DEFAULT_WAVE_AMPLITUDE
+  );
+  const [periodSeconds, setPeriodSeconds] = useState<number>(
+    SIM_CONFIG.DEFAULT_WAVE_PERIOD
+  );
+  const [particleSpacing, setParticleSpacing] = useState<number>(
+    SIM_CONFIG.DEFAULT_PARTICLE_SPACING
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const engine = new Engine();
-    engine.init(canvas, (errMsg) => setError(errMsg));
+    engineRef.current = engine;
+    engine
+      .init(canvas, (errMsg) => setError(errMsg))
+      .then(() => setReady(true));
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -25,17 +42,61 @@ export function SimulationCanvas() {
     return () => {
       resizeObserver.disconnect();
       engine.destroy();
+      engineRef.current = null;
     };
   }, []);
 
   if (error) {
     return (
-      <div className="p-8 font-mono text-[#ff6b6b]">
-        <h3 className="text-lg font-semibold">WebGPU Initialization Failed</h3>
-        <p className="mt-2">{error}</p>
+      <div className="flex min-h-screen items-center justify-center bg-stone-950 p-8 font-mono text-[#ff6b6b]">
+        <div>
+          <h3 className="text-lg font-semibold">WebGPU Initialization Failed</h3>
+          <p className="mt-2">{error}</p>
+        </div>
       </div>
     );
   }
 
-  return <canvas ref={canvasRef} className="block h-screen w-screen" />;
+  return (
+    <div className="flex min-h-screen bg-stone-950 text-stone-100">
+      <div className="relative min-w-0 flex-1">
+        <canvas ref={canvasRef} className="block h-screen w-full" />
+        {!ready && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-stone-400">
+            Starting simulation…
+          </div>
+        )}
+      </div>
+
+      <SimControls
+        running={running}
+        amplitude={amplitude}
+        periodSeconds={periodSeconds}
+        particleSpacing={particleSpacing}
+        onPlay={() => {
+          engineRef.current?.play();
+          setRunning(true);
+        }}
+        onPause={() => {
+          engineRef.current?.pause();
+          setRunning(false);
+        }}
+        onReset={() => {
+          engineRef.current?.reset();
+        }}
+        onAmplitudeChange={(value) => {
+          setAmplitude(value);
+          engineRef.current?.setWaveAmplitude(value);
+        }}
+        onPeriodChange={(value) => {
+          setPeriodSeconds(value);
+          engineRef.current?.setWavePeriod(value);
+        }}
+        onParticleCountChange={(spacing) => {
+          setParticleSpacing(spacing);
+          engineRef.current?.setParticleSpacing(spacing);
+        }}
+      />
+    </div>
+  );
 }

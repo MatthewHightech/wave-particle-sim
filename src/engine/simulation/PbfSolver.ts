@@ -1,29 +1,49 @@
-import { PBF_HEADER } from '../shaders/pbfHeader';
+import { buildPbfHeader } from '../shaders/pbfHeader';
 import clearHashCode from '../shaders/pbfClearHash.wgsl?raw';
-import buildHashCode from '../shaders/pbfBuildHash.wgsl?raw';
+import countHashCode from '../shaders/pbfCountHash.wgsl?raw';
+import prefixSumCode from '../shaders/pbfPrefixSum.wgsl?raw';
+import scatterHashCode from '../shaders/pbfScatterHash.wgsl?raw';
 import integrateCode from '../shaders/pbfIntegrate.wgsl?raw';
 import computeLambdaCode from '../shaders/pbfComputeLambda.wgsl?raw';
 import computeDeltaCode from '../shaders/pbfComputeDelta.wgsl?raw';
 import applyDeltaCode from '../shaders/pbfApplyDelta.wgsl?raw';
 import finalizeCode from '../shaders/pbfFinalize.wgsl?raw';
-import { leftWallState, SIM_CONFIG } from './SimConstants';
+import {
+  leftWallState,
+  SIM_CONFIG,
+  type ParticleDerived,
+  type WaveParams,
+} from './SimConstants';
+import {
+  spawnBoundary,
+  writeLeftWallBoundary,
+  type BoundaryParticles,
+} from './spawnBoundary';
 
 export class PbfSolver {
   private device: GPUDevice;
   private numParticles: number;
+  private numTotal: number;
   private numHashCells: number;
+  private derived: ParticleDerived;
+  private wave: WaveParams;
   private simTime = 0;
+  private boundary: BoundaryParticles;
 
-  private velBuffer: GPUBuffer;
   private predictedBuffer: GPUBuffer;
+  private velBuffer: GPUBuffer;
   private lambdaBuffer: GPUBuffer;
   private deltaBuffer: GPUBuffer;
   private cellCountBuffer: GPUBuffer;
+  private cellStartBuffer: GPUBuffer;
   private cellParticleBuffer: GPUBuffer;
+  private boundaryVelBuffer: GPUBuffer;
   private uniformBuffer: GPUBuffer;
 
   private clearHashPipeline: GPUComputePipeline;
-  private buildHashPipeline: GPUComputePipeline;
+  private countHashPipeline: GPUComputePipeline;
+  private prefixSumPipeline: GPUComputePipeline;
+  private scatterHashPipeline: GPUComputePipeline;
   private integratePipeline: GPUComputePipeline;
   private lambdaPipeline: GPUComputePipeline;
   private deltaPipeline: GPUComputePipeline;
@@ -31,17 +51,32 @@ export class PbfSolver {
   private finalizePipeline: GPUComputePipeline;
 
   private clearHashBindGroup: GPUBindGroup;
-  private buildHashBindGroup: GPUBindGroup;
+  private countHashBindGroup: GPUBindGroup;
+  private prefixSumBindGroup: GPUBindGroup;
+  private scatterHashBindGroup: GPUBindGroup;
   private integrateBindGroup: GPUBindGroup;
   private lambdaBindGroup: GPUBindGroup;
   private deltaBindGroup: GPUBindGroup;
   private applyDeltaBindGroup: GPUBindGroup;
   private finalizeBindGroup: GPUBindGroup;
 
-  constructor(device: GPUDevice, posBuffer: GPUBuffer, numParticles: number) {
+  private header: string;
+
+  constructor(
+    device: GPUDevice,
+    posBuffer: GPUBuffer,
+    numParticles: number,
+    derived: ParticleDerived,
+    wave: WaveParams
+  ) {
     this.device = device;
     this.numParticles = numParticles;
-    this.numHashCells = SIM_CONFIG.HASH_WIDTH * SIM_CONFIG.HASH_HEIGHT;
+    this.derived = derived;
+    this.wave = { ...wave };
+    this.boundary = spawnBoundary(derived.spacing);
+    this.numTotal = numParticles + this.boundary.positions.length / 2;
+    this.numHashCells = derived.hashWidth * derived.hashHeight;
+    this.header = buildPbfHeader(derived);
 
     this.velBuffer = device.createBuffer({
       label: 'PBF Velocity',
@@ -52,9 +87,14 @@ export class PbfSolver {
 
     this.predictedBuffer = device.createBuffer({
       label: 'PBF Predicted Position',
-      size: numParticles * 8,
-      usage: GPUBufferUsage.STORAGE,
+      size: this.numTotal * 8,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+    device.queue.writeBuffer(
+      this.predictedBuffer,
+      numParticles * 8,
+      this.boundary.positions
+    );
 
     this.lambdaBuffer = device.createBuffer({
       label: 'PBF Lambda',
@@ -74,11 +114,28 @@ export class PbfSolver {
       usage: GPUBufferUsage.STORAGE,
     });
 
-    this.cellParticleBuffer = device.createBuffer({
-      label: 'PBF Cell Particles',
-      size: this.numHashCells * SIM_CONFIG.MAX_PER_CELL * 4,
+    this.cellStartBuffer = device.createBuffer({
+      label: 'PBF Cell Starts',
+      size: this.numHashCells * 4,
       usage: GPUBufferUsage.STORAGE,
     });
+
+    this.cellParticleBuffer = device.createBuffer({
+      label: 'PBF Cell Particles',
+      size: Math.max(this.numTotal, 1) * 4,
+      usage: GPUBufferUsage.STORAGE,
+    });
+
+    this.boundaryVelBuffer = device.createBuffer({
+      label: 'PBF Boundary Velocity',
+      size: Math.max(this.boundary.velocities.byteLength, 8),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(
+      this.boundaryVelBuffer,
+      0,
+      this.boundary.velocities
+    );
 
     this.uniformBuffer = device.createBuffer({
       label: 'PBF Uniforms',
@@ -88,7 +145,9 @@ export class PbfSolver {
     this.writeUniforms(0);
 
     this.clearHashPipeline = this.makePipeline('PbfClearHash', clearHashCode);
-    this.buildHashPipeline = this.makePipeline('PbfBuildHash', buildHashCode);
+    this.countHashPipeline = this.makePipeline('PbfCountHash', countHashCode);
+    this.prefixSumPipeline = this.makePipeline('PbfPrefixSum', prefixSumCode);
+    this.scatterHashPipeline = this.makePipeline('PbfScatterHash', scatterHashCode);
     this.integratePipeline = this.makePipeline('PbfIntegrate', integrateCode);
     this.lambdaPipeline = this.makePipeline('PbfLambda', computeLambdaCode);
     this.deltaPipeline = this.makePipeline('PbfDelta', computeDeltaCode);
@@ -100,13 +159,31 @@ export class PbfSolver {
       entries: [{ binding: 0, resource: { buffer: this.cellCountBuffer } }],
     });
 
-    this.buildHashBindGroup = device.createBindGroup({
-      layout: this.buildHashPipeline.getBindGroupLayout(0),
+    this.countHashBindGroup = device.createBindGroup({
+      layout: this.countHashPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
         { binding: 1, resource: { buffer: this.predictedBuffer } },
         { binding: 2, resource: { buffer: this.cellCountBuffer } },
-        { binding: 3, resource: { buffer: this.cellParticleBuffer } },
+      ],
+    });
+
+    this.prefixSumBindGroup = device.createBindGroup({
+      layout: this.prefixSumPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.cellCountBuffer } },
+        { binding: 1, resource: { buffer: this.cellStartBuffer } },
+      ],
+    });
+
+    this.scatterHashBindGroup = device.createBindGroup({
+      layout: this.scatterHashPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: this.predictedBuffer } },
+        { binding: 2, resource: { buffer: this.cellCountBuffer } },
+        { binding: 3, resource: { buffer: this.cellStartBuffer } },
+        { binding: 4, resource: { buffer: this.cellParticleBuffer } },
       ],
     });
 
@@ -126,8 +203,9 @@ export class PbfSolver {
         { binding: 0, resource: { buffer: this.uniformBuffer } },
         { binding: 1, resource: { buffer: this.predictedBuffer } },
         { binding: 2, resource: { buffer: this.cellCountBuffer } },
-        { binding: 3, resource: { buffer: this.cellParticleBuffer } },
-        { binding: 4, resource: { buffer: this.lambdaBuffer } },
+        { binding: 3, resource: { buffer: this.cellStartBuffer } },
+        { binding: 4, resource: { buffer: this.cellParticleBuffer } },
+        { binding: 5, resource: { buffer: this.lambdaBuffer } },
       ],
     });
 
@@ -138,8 +216,9 @@ export class PbfSolver {
         { binding: 1, resource: { buffer: this.predictedBuffer } },
         { binding: 2, resource: { buffer: this.lambdaBuffer } },
         { binding: 3, resource: { buffer: this.cellCountBuffer } },
-        { binding: 4, resource: { buffer: this.cellParticleBuffer } },
-        { binding: 5, resource: { buffer: this.deltaBuffer } },
+        { binding: 4, resource: { buffer: this.cellStartBuffer } },
+        { binding: 5, resource: { buffer: this.cellParticleBuffer } },
+        { binding: 6, resource: { buffer: this.deltaBuffer } },
       ],
     });
 
@@ -160,15 +239,25 @@ export class PbfSolver {
         { binding: 2, resource: { buffer: this.velBuffer } },
         { binding: 3, resource: { buffer: this.predictedBuffer } },
         { binding: 4, resource: { buffer: this.cellCountBuffer } },
-        { binding: 5, resource: { buffer: this.cellParticleBuffer } },
+        { binding: 5, resource: { buffer: this.cellStartBuffer } },
+        { binding: 6, resource: { buffer: this.cellParticleBuffer } },
+        { binding: 7, resource: { buffer: this.boundaryVelBuffer } },
       ],
     });
+  }
+
+  public setWaveParams(wave: WaveParams): void {
+    this.wave = { ...wave };
+  }
+
+  public resetTime(): void {
+    this.simTime = 0;
   }
 
   private makePipeline(label: string, body: string): GPUComputePipeline {
     const module = this.device.createShaderModule({
       label: `${label} Shader`,
-      code: `${PBF_HEADER}\n${body}`,
+      code: `${this.header}\n${body}`,
     });
     return this.device.createComputePipeline({
       label: `${label} Pipeline`,
@@ -177,15 +266,40 @@ export class PbfSolver {
     });
   }
 
+  private syncBoundary(timeSeconds: number): void {
+    const wall = leftWallState(
+      timeSeconds,
+      this.wave.amplitude,
+      this.wave.periodSeconds,
+      this.derived.boundary
+    );
+    writeLeftWallBoundary(this.boundary, wall.x, wall.vx);
+    this.device.queue.writeBuffer(
+      this.predictedBuffer,
+      this.numParticles * 8,
+      this.boundary.positions
+    );
+    this.device.queue.writeBuffer(
+      this.boundaryVelBuffer,
+      0,
+      this.boundary.velocities
+    );
+  }
+
   private writeUniforms(timeSeconds: number): void {
-    const wall = leftWallState(timeSeconds);
+    const wall = leftWallState(
+      timeSeconds,
+      this.wave.amplitude,
+      this.wave.periodSeconds,
+      this.derived.boundary
+    );
     const data = new ArrayBuffer(32);
     const f32 = new Float32Array(data);
     const u32 = new Uint32Array(data);
     f32[0] = SIM_CONFIG.DT;
     f32[1] = SIM_CONFIG.GRAVITY;
     u32[2] = this.numParticles;
-    u32[3] = 0;
+    u32[3] = this.numTotal;
     f32[4] = wall.x;
     f32[5] = wall.vx;
     f32[6] = 0;
@@ -195,21 +309,30 @@ export class PbfSolver {
 
   private dispatchHash(pass: GPUComputePassEncoder): void {
     const hashGroups = Math.ceil(this.numHashCells / 64);
-    const particleGroups = Math.ceil(this.numParticles / 64);
+    const totalGroups = Math.ceil(this.numTotal / 64);
 
     pass.setPipeline(this.clearHashPipeline);
     pass.setBindGroup(0, this.clearHashBindGroup);
     pass.dispatchWorkgroups(hashGroups);
 
-    pass.setPipeline(this.buildHashPipeline);
-    pass.setBindGroup(0, this.buildHashBindGroup);
-    pass.dispatchWorkgroups(particleGroups);
+    pass.setPipeline(this.countHashPipeline);
+    pass.setBindGroup(0, this.countHashBindGroup);
+    pass.dispatchWorkgroups(totalGroups);
+
+    pass.setPipeline(this.prefixSumPipeline);
+    pass.setBindGroup(0, this.prefixSumBindGroup);
+    pass.dispatchWorkgroups(1);
+
+    pass.setPipeline(this.scatterHashPipeline);
+    pass.setBindGroup(0, this.scatterHashBindGroup);
+    pass.dispatchWorkgroups(totalGroups);
   }
 
   public step(commandEncoder: GPUCommandEncoder): void {
     const particleGroups = Math.ceil(this.numParticles / 64);
 
     for (let s = 0; s < SIM_CONFIG.SUBSTEPS; s++) {
+      this.syncBoundary(this.simTime);
       this.writeUniforms(this.simTime);
       this.simTime += SIM_CONFIG.DT;
 
@@ -251,7 +374,9 @@ export class PbfSolver {
     this.lambdaBuffer.destroy();
     this.deltaBuffer.destroy();
     this.cellCountBuffer.destroy();
+    this.cellStartBuffer.destroy();
     this.cellParticleBuffer.destroy();
+    this.boundaryVelBuffer.destroy();
     this.uniformBuffer.destroy();
   }
 }

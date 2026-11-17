@@ -1,13 +1,51 @@
-const DOMAIN_WIDTH = 64;
-const DOMAIN_HEIGHT = 64;
-const PARTICLE_SPACING = 0.55;
-const H = PARTICLE_SPACING * 2.2;
-const MASS = 1.0;
-const CELL_SIZE_METERS = 0.05;
-const GRAVITY_MPS2 = -9.8;
-const BOUNDARY = H;
-const WAVE_MAKER_AMPLITUDE = 2.0;
-const WAVE_MAKER_FREQUENCY_HZ = 0.85;
+export const SIM_CONFIG = {
+  DOMAIN_WIDTH: 64,
+  DOMAIN_HEIGHT: 64,
+  CELL_SIZE_METERS: 0.05,
+  GRAVITY_MPS2: -9.8,
+  GRAVITY: -9.8 / 0.05,
+  DT: 1 / 120,
+  SUBSTEPS: 2,
+  SOLVER_ITERATIONS: 5,
+  LAMBDA_EPS: 600.0,
+  DELTA_RELAXATION: 0.6,
+  TENSILE_K: 0.01,
+  TENSILE_DQ: 0.25,
+  TENSILE_N: 4,
+  XSPH: 0.25,
+  VISCOSITY: 0.08,
+  VELOCITY_DAMPING: 1.2,
+  MASS: 1.0,
+  BOUNDARY_LAYERS: 2,
+  LEFT_WALL_BASE_FACTOR: 1.0,
+  DEFAULT_PARTICLE_SPACING: 0.32,
+  DEFAULT_WAVE_AMPLITUDE: 5.0,
+  DEFAULT_WAVE_PERIOD: 1 / 0.85,
+  MIN_PARTICLE_SPACING: 0.26,
+  MAX_PARTICLE_SPACING: 0.5,
+  MIN_WAVE_AMPLITUDE: 0.5,
+  MAX_WAVE_AMPLITUDE: 8,
+  MIN_WAVE_PERIOD: 0.4,
+  MAX_WAVE_PERIOD: 4,
+  FILL_FRACTION: 0.55,
+} as const;
+
+export type WaveParams = {
+  amplitude: number;
+  periodSeconds: number;
+};
+
+export type ParticleDerived = {
+  spacing: number;
+  h: number;
+  restDensity: number;
+  boundary: number;
+  particleRadius: number;
+  hashCellSize: number;
+  hashWidth: number;
+  hashHeight: number;
+  maxDelta: number;
+};
 
 function poly6(r2: number, h: number): number {
   const h2 = h * h;
@@ -28,59 +66,67 @@ function restDensityFromLattice(h: number, spacing: number, mass: number): numbe
   return density;
 }
 
-const REST_DENSITY = restDensityFromLattice(H, PARTICLE_SPACING, MASS);
-
-export const SIM_CONFIG = {
-  DOMAIN_WIDTH,
-  DOMAIN_HEIGHT,
-  GRID_WIDTH: DOMAIN_WIDTH,
-  GRID_HEIGHT: DOMAIN_HEIGHT,
-  PARTICLE_RADIUS: PARTICLE_SPACING * 0.55,
-  PARTICLE_SPACING,
-  H,
-  MASS,
-  REST_DENSITY,
-  BOUNDARY,
-  WAVE_MAKER_AMPLITUDE,
-  WAVE_MAKER_FREQUENCY_HZ,
-  WAVE_MAKER_OMEGA: 2 * Math.PI * WAVE_MAKER_FREQUENCY_HZ,
-  LEFT_WALL_BASE: BOUNDARY,
-  HASH_CELL_SIZE: H,
-  HASH_WIDTH: Math.ceil(DOMAIN_WIDTH / H),
-  HASH_HEIGHT: Math.ceil(DOMAIN_HEIGHT / H),
-  MAX_PER_CELL: 64,
-  CELL_SIZE_METERS,
-  GRAVITY_MPS2,
-  GRAVITY: GRAVITY_MPS2 / CELL_SIZE_METERS,
-  DT: 1 / 120,
-  SUBSTEPS: 2,
-  SOLVER_ITERATIONS: 5,
-  LAMBDA_EPS: 600.0,
-  DELTA_RELAXATION: 0.6,
-  MAX_DELTA: H * 0.15,
-  TENSILE_K: 0.01,
-  TENSILE_DQ: 0.25,
-  TENSILE_N: 4,
-  XSPH: 0.25,
-  VISCOSITY: 0.08,
-  VELOCITY_DAMPING: 1.2,
-} as const;
-
-export function particleDomain() {
-  const b = SIM_CONFIG.BOUNDARY;
+export function deriveParticles(spacing: number): ParticleDerived {
+  const h = spacing * 2.2;
   return {
-    minX: SIM_CONFIG.LEFT_WALL_BASE + SIM_CONFIG.WAVE_MAKER_AMPLITUDE,
-    maxX: SIM_CONFIG.DOMAIN_WIDTH - b,
-    minY: b,
-    maxY: SIM_CONFIG.DOMAIN_HEIGHT - b,
+    spacing,
+    h,
+    restDensity: restDensityFromLattice(h, spacing, SIM_CONFIG.MASS),
+    boundary: h,
+    particleRadius: spacing * 0.52,
+    hashCellSize: h,
+    hashWidth: Math.ceil(SIM_CONFIG.DOMAIN_WIDTH / h),
+    hashHeight: Math.ceil(SIM_CONFIG.DOMAIN_HEIGHT / h),
+    maxDelta: h * 0.15,
   };
 }
 
-export function leftWallState(timeSeconds: number) {
-  const { LEFT_WALL_BASE, WAVE_MAKER_AMPLITUDE, WAVE_MAKER_OMEGA } = SIM_CONFIG;
-  const phase = WAVE_MAKER_OMEGA * timeSeconds;
+export function particleDomain(amplitude: number, boundary: number) {
   return {
-    x: LEFT_WALL_BASE + WAVE_MAKER_AMPLITUDE * Math.sin(phase),
-    vx: WAVE_MAKER_AMPLITUDE * WAVE_MAKER_OMEGA * Math.cos(phase),
+    minX: boundary * SIM_CONFIG.LEFT_WALL_BASE_FACTOR + amplitude,
+    maxX: SIM_CONFIG.DOMAIN_WIDTH - boundary,
+    minY: boundary,
+    maxY: SIM_CONFIG.DOMAIN_HEIGHT - boundary,
+  };
+}
+
+export function estimateParticleCount(spacing: number, amplitude: number): number {
+  const derived = deriveParticles(spacing);
+  const domain = particleDomain(amplitude, derived.boundary);
+  const surfaceY = domain.minY + (domain.maxY - domain.minY) * SIM_CONFIG.FILL_FRACTION;
+  let count = 0;
+  for (let x = domain.minX + spacing * 0.5; x < domain.maxX - spacing * 0.5; x += spacing) {
+    for (let y = domain.minY + spacing * 0.5; y < surfaceY; y += spacing) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+export function spacingForTargetCount(targetCount: number, amplitude: number): number {
+  let lo: number = SIM_CONFIG.MIN_PARTICLE_SPACING;
+  let hi: number = SIM_CONFIG.MAX_PARTICLE_SPACING;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) * 0.5;
+    if (estimateParticleCount(mid, amplitude) > targetCount) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return (lo + hi) * 0.5;
+}
+
+export function leftWallState(
+  timeSeconds: number,
+  amplitude: number,
+  periodSeconds: number,
+  wallBase: number
+) {
+  const omega = (2 * Math.PI) / Math.max(periodSeconds, 0.05);
+  const phase = omega * timeSeconds;
+  return {
+    x: wallBase + amplitude * Math.sin(phase),
+    vx: amplitude * omega * Math.cos(phase),
   };
 }

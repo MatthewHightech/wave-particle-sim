@@ -1,10 +1,5 @@
-import { SimulationCanvas } from "./components/SimulationCanvas";
+import { SimulationCanvas } from './components/SimulationCanvas';
 
 export default function App() {
-
-  return (
-    <>
-      <SimulationCanvas />
-    </>
-  )
+  return <SimulationCanvas />;
 }

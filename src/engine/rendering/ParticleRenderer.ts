@@ -7,15 +7,18 @@ export class ParticleRenderer {
   private uniformBuffer: GPUBuffer;
   private bindGroup: GPUBindGroup;
   private numParticles: number;
+  private particleRadius: number;
 
   constructor(
     device: GPUDevice,
     format: GPUTextureFormat,
     posBuffer: GPUBuffer,
-    numParticles: number
+    numParticles: number,
+    particleRadius: number
   ) {
     this.device = device;
     this.numParticles = numParticles;
+    this.particleRadius = particleRadius;
 
     this.uniformBuffer = device.createBuffer({
       label: 'Render Uniform Buffer',
@@ -78,7 +81,7 @@ export class ParticleRenderer {
       new Float32Array([
         SIM_CONFIG.DOMAIN_WIDTH,
         SIM_CONFIG.DOMAIN_HEIGHT,
-        SIM_CONFIG.PARTICLE_RADIUS,
+        this.particleRadius,
         width / height,
       ])
     );

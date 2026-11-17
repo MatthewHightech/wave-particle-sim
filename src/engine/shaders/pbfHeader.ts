@@ -1,37 +1,39 @@
-import { SIM_CONFIG, particleDomain } from '../simulation/SimConstants';
+import { SIM_CONFIG, type ParticleDerived } from '../simulation/SimConstants';
 
-const domain = particleDomain();
+export function buildPbfHeader(derived: ParticleDerived): string {
+  const maxX = SIM_CONFIG.DOMAIN_WIDTH - derived.boundary;
+  const minY = derived.boundary;
+  const maxY = SIM_CONFIG.DOMAIN_HEIGHT - derived.boundary;
 
-export const PBF_HEADER = `
+  return `
 const DOMAIN_WIDTH: f32 = ${SIM_CONFIG.DOMAIN_WIDTH}.0;
 const DOMAIN_HEIGHT: f32 = ${SIM_CONFIG.DOMAIN_HEIGHT}.0;
-const H: f32 = ${SIM_CONFIG.H};
-const H2: f32 = ${SIM_CONFIG.H * SIM_CONFIG.H};
+const H: f32 = ${derived.h};
+const H2: f32 = ${derived.h * derived.h};
 const MASS: f32 = ${SIM_CONFIG.MASS};
-const REST_DENSITY: f32 = ${SIM_CONFIG.REST_DENSITY};
+const REST_DENSITY: f32 = ${derived.restDensity};
 const LAMBDA_EPS: f32 = ${SIM_CONFIG.LAMBDA_EPS};
 const DELTA_RELAXATION: f32 = ${SIM_CONFIG.DELTA_RELAXATION};
-const MAX_DELTA: f32 = ${SIM_CONFIG.MAX_DELTA};
+const MAX_DELTA: f32 = ${derived.maxDelta};
 const TENSILE_K: f32 = ${SIM_CONFIG.TENSILE_K};
 const TENSILE_DQ: f32 = ${SIM_CONFIG.TENSILE_DQ};
 const TENSILE_N: f32 = ${SIM_CONFIG.TENSILE_N}.0;
 const XSPH: f32 = ${SIM_CONFIG.XSPH};
 const VISCOSITY: f32 = ${SIM_CONFIG.VISCOSITY};
 const VELOCITY_DAMPING: f32 = ${SIM_CONFIG.VELOCITY_DAMPING};
-const HASH_CELL_SIZE: f32 = ${SIM_CONFIG.HASH_CELL_SIZE};
-const HASH_WIDTH: i32 = ${SIM_CONFIG.HASH_WIDTH};
-const HASH_HEIGHT: i32 = ${SIM_CONFIG.HASH_HEIGHT};
-const MAX_PER_CELL: i32 = ${SIM_CONFIG.MAX_PER_CELL};
-const PARTICLE_MAX_X: f32 = ${domain.maxX};
-const PARTICLE_MIN_Y: f32 = ${domain.minY};
-const PARTICLE_MAX_Y: f32 = ${domain.maxY};
+const HASH_CELL_SIZE: f32 = ${derived.hashCellSize};
+const HASH_WIDTH: i32 = ${derived.hashWidth};
+const HASH_HEIGHT: i32 = ${derived.hashHeight};
+const PARTICLE_MAX_X: f32 = ${maxX};
+const PARTICLE_MIN_Y: f32 = ${minY};
+const PARTICLE_MAX_Y: f32 = ${maxY};
 const PI: f32 = 3.141592653589793;
 
 struct PbfUniforms {
   dt: f32,
   gravity: f32,
   numParticles: u32,
-  _pad0: u32,
+  numTotal: u32,
   leftWallX: f32,
   leftWallVx: f32,
   _pad1: f32,
@@ -106,3 +108,4 @@ fn limit_delta(delta: vec2f) -> vec2f {
   return scaled;
 }
 `;
+}

@@ -3,7 +3,9 @@
 @group(0) @binding(2) var<storage, read_write> vel: array<vec2f>;
 @group(0) @binding(3) var<storage, read> predicted: array<vec2f>;
 @group(0) @binding(4) var<storage, read_write> cellCounts: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read> cellParticles: array<u32>;
+@group(0) @binding(5) var<storage, read> cellStarts: array<u32>;
+@group(0) @binding(6) var<storage, read> cellParticles: array<u32>;
+@group(0) @binding(7) var<storage, read> boundaryVel: array<vec2f>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -26,9 +28,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       }
 
       let nIdx = cell_index(nc);
-      let count = min(atomicLoad(&cellCounts[nIdx]), u32(MAX_PER_CELL));
+      let start = cellStarts[nIdx];
+      let count = atomicLoad(&cellCounts[nIdx]);
       for (var s = 0u; s < count; s++) {
-        let j = cellParticles[nIdx * u32(MAX_PER_CELL) + s];
+        let j = cellParticles[start + s];
         if (j == i) { continue; }
 
         let r = newPos - predicted[j];
@@ -36,7 +39,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         let w = poly6(r2);
         if (w <= 0.0) { continue; }
 
-        let vj = (predicted[j] - pos[j]) / max(params.dt, 1e-8);
+        var vj = vec2f(0.0);
+        if (j < params.numParticles) {
+          vj = (predicted[j] - pos[j]) / max(params.dt, 1e-8);
+        } else {
+          vj = boundaryVel[j - params.numParticles];
+        }
+
         let vji = vj - newVel;
         xsph += vji * w;
         wSum += w;

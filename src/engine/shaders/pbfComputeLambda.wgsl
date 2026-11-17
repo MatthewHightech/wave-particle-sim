@@ -1,8 +1,9 @@
 @group(0) @binding(0) var<uniform> params: PbfUniforms;
 @group(0) @binding(1) var<storage, read> predicted: array<vec2f>;
 @group(0) @binding(2) var<storage, read_write> cellCounts: array<atomic<u32>>;
-@group(0) @binding(3) var<storage, read> cellParticles: array<u32>;
-@group(0) @binding(4) var<storage, read_write> lambda: array<f32>;
+@group(0) @binding(3) var<storage, read> cellStarts: array<u32>;
+@group(0) @binding(4) var<storage, read> cellParticles: array<u32>;
+@group(0) @binding(5) var<storage, read_write> lambda: array<f32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -24,9 +25,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       }
 
       let nIdx = cell_index(nc);
-      let count = min(atomicLoad(&cellCounts[nIdx]), u32(MAX_PER_CELL));
+      let start = cellStarts[nIdx];
+      let count = atomicLoad(&cellCounts[nIdx]);
       for (var s = 0u; s < count; s++) {
-        let j = cellParticles[nIdx * u32(MAX_PER_CELL) + s];
+        let j = cellParticles[start + s];
         let r = pi - predicted[j];
         let r2 = dot(r, r);
         density += MASS * poly6(r2);
