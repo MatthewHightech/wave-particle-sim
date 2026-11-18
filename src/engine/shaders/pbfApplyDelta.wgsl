@@ -8,5 +8,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   if (i >= params.numParticles) { return; }
 
   let moved = predicted[i] + deltaPos[i];
-  predicted[i] = clamp_to_domain(moved, params.leftWallX);
+  predicted[i] = clamp_to_domain(
+    moved,
+    params.leftWallX,
+    params.pivotFloorX,
+    vec2f(params.midFloorX, params.midFloorY),
+    params.rightFloorY
+  );
 }

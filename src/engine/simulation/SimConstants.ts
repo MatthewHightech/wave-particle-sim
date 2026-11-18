@@ -1,5 +1,7 @@
+import { defaultFloorShape, floorHeightAt, type FloorShape } from './tankFloor';
+
 export const SIM_CONFIG = {
-  DOMAIN_WIDTH: 64,
+  DOMAIN_WIDTH: 112,
   DOMAIN_HEIGHT: 64,
   CELL_SIZE_METERS: 0.05,
   GRAVITY_MPS2: -9.8,
@@ -90,13 +92,19 @@ export function particleDomain(amplitude: number, boundary: number) {
   };
 }
 
-export function estimateParticleCount(spacing: number, amplitude: number): number {
+export function estimateParticleCount(
+  spacing: number,
+  amplitude: number,
+  floorShape?: FloorShape
+): number {
   const derived = deriveParticles(spacing);
   const domain = particleDomain(amplitude, derived.boundary);
   const surfaceY = domain.minY + (domain.maxY - domain.minY) * SIM_CONFIG.FILL_FRACTION;
+  const shape = floorShape ?? defaultFloorShape(derived.boundary);
   let count = 0;
   for (let x = domain.minX + spacing * 0.5; x < domain.maxX - spacing * 0.5; x += spacing) {
-    for (let y = domain.minY + spacing * 0.5; y < surfaceY; y += spacing) {
+    const minY = floorHeightAt(x, derived.boundary, shape);
+    for (let y = minY + spacing * 0.5; y < surfaceY; y += spacing) {
       count += 1;
     }
   }

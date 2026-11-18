@@ -16,9 +16,15 @@ import {
 } from './SimConstants';
 import {
   spawnBoundary,
+  writeFloorBoundary,
   writeLeftWallBoundary,
   type BoundaryParticles,
 } from './spawnBoundary';
+import {
+  clampFloorShape,
+  defaultFloorShape,
+  type FloorShape,
+} from './tankFloor';
 
 export class PbfSolver {
   private device: GPUDevice;
@@ -28,6 +34,7 @@ export class PbfSolver {
   private derived: ParticleDerived;
   private wave: WaveParams;
   private simTime = 0;
+  private floorShape: FloorShape;
   private boundary: BoundaryParticles;
 
   private predictedBuffer: GPUBuffer;
@@ -67,13 +74,15 @@ export class PbfSolver {
     posBuffer: GPUBuffer,
     numParticles: number,
     derived: ParticleDerived,
-    wave: WaveParams
+    wave: WaveParams,
+    floorShape = defaultFloorShape(derived.boundary)
   ) {
     this.device = device;
     this.numParticles = numParticles;
     this.derived = derived;
     this.wave = { ...wave };
-    this.boundary = spawnBoundary(derived.spacing);
+    this.floorShape = clampFloorShape(floorShape, derived.boundary);
+    this.boundary = spawnBoundary(derived.spacing, this.floorShape);
     this.numTotal = numParticles + this.boundary.positions.length / 2;
     this.numHashCells = derived.hashWidth * derived.hashHeight;
     this.header = buildPbfHeader(derived);
@@ -139,7 +148,7 @@ export class PbfSolver {
 
     this.uniformBuffer = device.createBuffer({
       label: 'PBF Uniforms',
-      size: 32,
+      size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.writeUniforms(0);
@@ -250,6 +259,31 @@ export class PbfSolver {
     this.wave = { ...wave };
   }
 
+  public getFloorShape(): FloorShape {
+    return { ...this.floorShape };
+  }
+
+  public setFloorShape(floorShape: FloorShape): void {
+    this.floorShape = clampFloorShape(floorShape, this.derived.boundary);
+    writeFloorBoundary(
+      this.boundary,
+      this.derived.spacing,
+      this.derived.boundary,
+      this.floorShape
+    );
+    this.device.queue.writeBuffer(
+      this.predictedBuffer,
+      this.numParticles * 8,
+      this.boundary.positions
+    );
+    this.device.queue.writeBuffer(
+      this.boundaryVelBuffer,
+      0,
+      this.boundary.velocities
+    );
+    this.writeUniforms(this.simTime);
+  }
+
   public resetTime(): void {
     this.simTime = 0;
   }
@@ -273,6 +307,12 @@ export class PbfSolver {
       this.wave.periodSeconds,
       this.derived.boundary
     );
+    writeFloorBoundary(
+      this.boundary,
+      this.derived.spacing,
+      this.derived.boundary,
+      this.floorShape
+    );
     writeLeftWallBoundary(this.boundary, wall.x, wall.vx);
     this.device.queue.writeBuffer(
       this.predictedBuffer,
@@ -293,7 +333,7 @@ export class PbfSolver {
       this.wave.periodSeconds,
       this.derived.boundary
     );
-    const data = new ArrayBuffer(32);
+    const data = new ArrayBuffer(48);
     const f32 = new Float32Array(data);
     const u32 = new Uint32Array(data);
     f32[0] = SIM_CONFIG.DT;
@@ -302,8 +342,12 @@ export class PbfSolver {
     u32[3] = this.numTotal;
     f32[4] = wall.x;
     f32[5] = wall.vx;
-    f32[6] = 0;
-    f32[7] = 0;
+    f32[6] = this.floorShape.rightY;
+    f32[7] = this.floorShape.midX;
+    f32[8] = this.floorShape.midY;
+    f32[9] = this.floorShape.pivotX;
+    f32[10] = 0;
+    f32[11] = 0;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 

@@ -68,11 +68,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   newVel *= max(0.0, 1.0 - VELOCITY_DAMPING * params.dt);
 
-  let collided = apply_moving_left_wall(
+  let collided = apply_boundaries(
     newPos,
     newVel,
     params.leftWallX,
-    params.leftWallVx
+    params.leftWallVx,
+    params.pivotFloorX,
+    vec2f(params.midFloorX, params.midFloorY),
+    params.rightFloorY
   );
 
   pos[i] = collided.xy;

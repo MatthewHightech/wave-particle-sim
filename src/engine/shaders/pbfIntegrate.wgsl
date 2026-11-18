@@ -12,11 +12,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   v.y += params.gravity * params.dt;
 
   var predictedPos = pos[i] + v * params.dt;
-  let collided = apply_moving_left_wall(
+  let collided = apply_boundaries(
     predictedPos,
     v,
     params.leftWallX,
-    params.leftWallVx
+    params.leftWallVx,
+    params.pivotFloorX,
+    vec2f(params.midFloorX, params.midFloorY),
+    params.rightFloorY
   );
 
   predicted[i] = collided.xy;

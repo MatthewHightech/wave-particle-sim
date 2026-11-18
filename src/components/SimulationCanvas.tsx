@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Engine } from '../engine/Engine';
-import { SIM_CONFIG } from '../engine/simulation/SimConstants';
+import {
+  deriveParticles,
+  SIM_CONFIG,
+} from '../engine/simulation/SimConstants';
+import {
+  defaultFloorShape,
+  type FloorShape,
+} from '../engine/simulation/tankFloor';
+import { FloorAngleHandle } from './FloorAngleHandle';
 import { SimControls } from './SimControls';
 
 export function SimulationCanvas() {
@@ -17,6 +25,11 @@ export function SimulationCanvas() {
   );
   const [particleSpacing, setParticleSpacing] = useState<number>(
     SIM_CONFIG.DEFAULT_PARTICLE_SPACING
+  );
+  const [floorShape, setFloorShape] = useState<FloorShape>(() =>
+    defaultFloorShape(
+      deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
+    )
   );
 
   useEffect(() => {
@@ -61,6 +74,17 @@ export function SimulationCanvas() {
     <div className="flex min-h-screen bg-stone-950 text-stone-100">
       <div className="relative min-w-0 flex-1">
         <canvas ref={canvasRef} className="block h-screen w-full" />
+        {ready && (
+          <FloorAngleHandle
+            canvas={canvasRef.current}
+            particleSpacing={particleSpacing}
+            floorShape={floorShape}
+            onFloorShapeChange={(shape) => {
+              setFloorShape(shape);
+              engineRef.current?.setFloorShape(shape);
+            }}
+          />
+        )}
         {!ready && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-stone-400">
             Starting simulation…
@@ -95,6 +119,10 @@ export function SimulationCanvas() {
         onParticleCountChange={(spacing) => {
           setParticleSpacing(spacing);
           engineRef.current?.setParticleSpacing(spacing);
+          const nextShape = engineRef.current?.getFloorShape();
+          if (nextShape) {
+            setFloorShape(nextShape);
+          }
         }}
       />
     </div>

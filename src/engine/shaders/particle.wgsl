@@ -30,12 +30,9 @@ fn vs_main(
   let particlePos = positions[instanceIndex];
   let worldPos = particlePos + localPos * uniforms.particleRadius;
 
+  let domainAspect = uniforms.gridSize.x / max(uniforms.gridSize.y, 1e-6);
   var ndc = (worldPos / uniforms.gridSize) * 2.0 - 1.0;
-  if (uniforms.aspectRatio > 1.0) {
-    ndc.x /= uniforms.aspectRatio;
-  } else {
-    ndc.y *= uniforms.aspectRatio;
-  }
+  ndc.y *= uniforms.aspectRatio / domainAspect;
 
   var out: VertexOutput;
   out.clipPos = vec4f(ndc, 0.0, 1.0);

@@ -36,6 +36,10 @@ struct PbfUniforms {
   numTotal: u32,
   leftWallX: f32,
   leftWallVx: f32,
+  rightFloorY: f32,
+  midFloorX: f32,
+  midFloorY: f32,
+  pivotFloorX: f32,
   _pad1: f32,
   _pad2: f32,
 };
@@ -64,15 +68,65 @@ fn cell_index(c: vec2i) -> u32 {
   return u32(c.y * HASH_WIDTH + c.x);
 }
 
-fn clamp_to_domain(p: vec2f, leftWallX: f32) -> vec2f {
-  return clamp(
-    p,
-    vec2f(leftWallX, PARTICLE_MIN_Y),
-    vec2f(PARTICLE_MAX_X, PARTICLE_MAX_Y)
-  );
+fn segment_closest(p: vec2f, a: vec2f, b: vec2f) -> vec2f {
+  let ab = b - a;
+  let abLen2 = max(dot(ab, ab), 1e-8);
+  let t = clamp(dot(p - a, ab) / abLen2, 0.0, 1.0);
+  return a + ab * t;
 }
 
-fn apply_moving_left_wall(p: vec2f, v: vec2f, leftWallX: f32, leftWallVx: f32) -> vec4f {
+fn segment_normal(a: vec2f, b: vec2f) -> vec2f {
+  let ab = b - a;
+  return normalize(vec2f(-ab.y, ab.x));
+}
+
+fn project_to_floor(p: vec2f, pivotFloorX: f32, midFloor: vec2f, rightFloorY: f32) -> vec2f {
+  if (p.x <= pivotFloorX) {
+    return vec2f(p.x, max(p.y, PARTICLE_MIN_Y));
+  }
+
+  let pivot = vec2f(pivotFloorX, PARTICLE_MIN_Y);
+  let right = vec2f(PARTICLE_MAX_X, rightFloorY);
+  let c1 = segment_closest(p, pivot, midFloor);
+  let c2 = segment_closest(p, midFloor, right);
+  let useFirst = distance(p, c1) <= distance(p, c2);
+  let closest = select(c2, c1, useFirst);
+  let n = select(
+    segment_normal(midFloor, right),
+    segment_normal(pivot, midFloor),
+    useFirst
+  );
+  let dist = dot(p - closest, n);
+  if (dist >= 0.0) {
+    return p;
+  }
+  return closest;
+}
+
+fn clamp_to_domain(
+  p: vec2f,
+  leftWallX: f32,
+  pivotFloorX: f32,
+  midFloor: vec2f,
+  rightFloorY: f32
+) -> vec2f {
+  var pos = clamp(
+    p,
+    vec2f(leftWallX, 0.0),
+    vec2f(PARTICLE_MAX_X, PARTICLE_MAX_Y)
+  );
+  return project_to_floor(pos, pivotFloorX, midFloor, rightFloorY);
+}
+
+fn apply_boundaries(
+  p: vec2f,
+  v: vec2f,
+  leftWallX: f32,
+  leftWallVx: f32,
+  pivotFloorX: f32,
+  midFloor: vec2f,
+  rightFloorY: f32
+) -> vec4f {
   var pos = p;
   var vel = v;
 
@@ -87,13 +141,37 @@ fn apply_moving_left_wall(p: vec2f, v: vec2f, leftWallX: f32, leftWallVx: f32) -
     pos.x = PARTICLE_MAX_X;
     if (vel.x > 0.0) { vel.x = 0.0; }
   }
-  if (pos.y < PARTICLE_MIN_Y) {
-    pos.y = PARTICLE_MIN_Y;
-    if (vel.y < 0.0) { vel.y = 0.0; }
-  }
+
   if (pos.y > PARTICLE_MAX_Y) {
     pos.y = PARTICLE_MAX_Y;
     if (vel.y > 0.0) { vel.y = 0.0; }
+  }
+
+  if (pos.x <= pivotFloorX) {
+    if (pos.y < PARTICLE_MIN_Y) {
+      pos.y = PARTICLE_MIN_Y;
+      if (vel.y < 0.0) { vel.y = 0.0; }
+    }
+  } else {
+    let pivot = vec2f(pivotFloorX, PARTICLE_MIN_Y);
+    let right = vec2f(PARTICLE_MAX_X, rightFloorY);
+    let c1 = segment_closest(pos, pivot, midFloor);
+    let c2 = segment_closest(pos, midFloor, right);
+    let useFirst = distance(pos, c1) <= distance(pos, c2);
+    let closest = select(c2, c1, useFirst);
+    let n = select(
+      segment_normal(midFloor, right),
+      segment_normal(pivot, midFloor),
+      useFirst
+    );
+    let dist = dot(pos - closest, n);
+    if (dist < 0.0) {
+      pos = closest;
+      let vn = dot(vel, n);
+      if (vn < 0.0) {
+        vel = vel - n * vn;
+      }
+    }
   }
 
   return vec4f(pos, vel);

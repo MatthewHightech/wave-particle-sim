@@ -8,9 +8,15 @@ import {
   type WaveParams,
 } from './simulation/SimConstants';
 import { spawnFluid } from './simulation/spawnFluid';
+import {
+  clampFloorShape,
+  defaultFloorShape,
+  type FloorShape,
+} from './simulation/tankFloor';
 
 export type EngineSettings = WaveParams & {
   particleSpacing: number;
+  floorShape: FloorShape;
 };
 
 export class Engine {
@@ -25,6 +31,9 @@ export class Engine {
     amplitude: SIM_CONFIG.DEFAULT_WAVE_AMPLITUDE,
     periodSeconds: SIM_CONFIG.DEFAULT_WAVE_PERIOD,
     particleSpacing: SIM_CONFIG.DEFAULT_PARTICLE_SPACING,
+    floorShape: defaultFloorShape(
+      deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
+    ),
   };
 
   public async init(
@@ -62,14 +71,28 @@ export class Engine {
   }
 
   public getSettings(): EngineSettings {
-    return { ...this.settings };
+    return {
+      ...this.settings,
+      floorShape: { ...this.settings.floorShape },
+    };
   }
 
   public getParticleCount(): number {
     return estimateParticleCount(
       this.settings.particleSpacing,
-      this.settings.amplitude
+      this.settings.amplitude,
+      this.settings.floorShape
     );
+  }
+
+  public getFloorShape(): FloorShape {
+    return { ...this.settings.floorShape };
+  }
+
+  public setFloorShape(floorShape: FloorShape): void {
+    const boundary = deriveParticles(this.settings.particleSpacing).boundary;
+    this.settings.floorShape = clampFloorShape(floorShape, boundary);
+    this.solver?.setFloorShape(this.settings.floorShape);
   }
 
   public setWaveAmplitude(amplitude: number): void {
@@ -103,9 +126,14 @@ export class Engine {
     if (!this.gpu) return;
     const { device, format } = this.gpu;
     const derived = deriveParticles(this.settings.particleSpacing);
+    this.settings.floorShape = clampFloorShape(
+      this.settings.floorShape,
+      derived.boundary
+    );
     const positions = spawnFluid(
       this.settings.particleSpacing,
-      this.settings.amplitude
+      this.settings.amplitude,
+      this.settings.floorShape
     );
     const numParticles = positions.length / 2;
 
@@ -124,7 +152,8 @@ export class Engine {
       {
         amplitude: this.settings.amplitude,
         periodSeconds: this.settings.periodSeconds,
-      }
+      },
+      this.settings.floorShape
     );
     this.renderer = new ParticleRenderer(
       device,
