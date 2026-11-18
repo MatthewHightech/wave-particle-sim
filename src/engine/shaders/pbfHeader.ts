@@ -21,6 +21,7 @@ const TENSILE_N: f32 = ${SIM_CONFIG.TENSILE_N}.0;
 const XSPH: f32 = ${SIM_CONFIG.XSPH};
 const VISCOSITY: f32 = ${SIM_CONFIG.VISCOSITY};
 const VELOCITY_DAMPING: f32 = ${SIM_CONFIG.VELOCITY_DAMPING};
+const FOAM_LIFETIME: f32 = ${SIM_CONFIG.FOAM_LIFETIME};
 const HASH_CELL_SIZE: f32 = ${derived.hashCellSize};
 const HASH_WIDTH: i32 = ${derived.hashWidth};
 const HASH_HEIGHT: i32 = ${derived.hashHeight};
@@ -40,8 +41,12 @@ struct PbfUniforms {
   midFloorX: f32,
   midFloorY: f32,
   pivotFloorX: f32,
+  foamImpactStart: f32,
+  foamImpactFull: f32,
+  foamMotionStart: f32,
+  foamMotionFull: f32,
+  _pad0: f32,
   _pad1: f32,
-  _pad2: f32,
 };
 
 fn poly6(r2: f32) -> f32 {

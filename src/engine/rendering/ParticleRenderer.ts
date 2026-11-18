@@ -13,6 +13,7 @@ export class ParticleRenderer {
     device: GPUDevice,
     format: GPUTextureFormat,
     posBuffer: GPUBuffer,
+    foamBuffer: GPUBuffer,
     numParticles: number,
     particleRadius: number
   ) {
@@ -70,6 +71,7 @@ export class ParticleRenderer {
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
         { binding: 1, resource: { buffer: posBuffer } },
+        { binding: 2, resource: { buffer: foamBuffer } },
       ],
     });
   }

@@ -39,6 +39,7 @@ export class PbfSolver {
 
   private predictedBuffer: GPUBuffer;
   private velBuffer: GPUBuffer;
+  private foamBuffer: GPUBuffer;
   private lambdaBuffer: GPUBuffer;
   private deltaBuffer: GPUBuffer;
   private cellCountBuffer: GPUBuffer;
@@ -94,6 +95,13 @@ export class PbfSolver {
     });
     device.queue.writeBuffer(this.velBuffer, 0, new Float32Array(numParticles * 2));
 
+    this.foamBuffer = device.createBuffer({
+      label: 'PBF Foam',
+      size: Math.max(numParticles * 4, 4),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(this.foamBuffer, 0, new Float32Array(numParticles));
+
     this.predictedBuffer = device.createBuffer({
       label: 'PBF Predicted Position',
       size: this.numTotal * 8,
@@ -148,7 +156,7 @@ export class PbfSolver {
 
     this.uniformBuffer = device.createBuffer({
       label: 'PBF Uniforms',
-      size: 48,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this.writeUniforms(0);
@@ -251,12 +259,17 @@ export class PbfSolver {
         { binding: 5, resource: { buffer: this.cellStartBuffer } },
         { binding: 6, resource: { buffer: this.cellParticleBuffer } },
         { binding: 7, resource: { buffer: this.boundaryVelBuffer } },
+        { binding: 8, resource: { buffer: this.foamBuffer } },
       ],
     });
   }
 
   public setWaveParams(wave: WaveParams): void {
     this.wave = { ...wave };
+  }
+
+  public getFoamBuffer(): GPUBuffer {
+    return this.foamBuffer;
   }
 
   public getFloorShape(): FloorShape {
@@ -333,7 +346,7 @@ export class PbfSolver {
       this.wave.periodSeconds,
       this.derived.boundary
     );
-    const data = new ArrayBuffer(48);
+    const data = new ArrayBuffer(64);
     const f32 = new Float32Array(data);
     const u32 = new Uint32Array(data);
     f32[0] = SIM_CONFIG.DT;
@@ -346,8 +359,15 @@ export class PbfSolver {
     f32[7] = this.floorShape.midX;
     f32[8] = this.floorShape.midY;
     f32[9] = this.floorShape.pivotX;
-    f32[10] = 0;
-    f32[11] = 0;
+    const peakSpeed =
+      this.wave.amplitude *
+      ((2 * Math.PI) / Math.max(this.wave.periodSeconds, 0.05));
+    f32[10] = Math.max(6, peakSpeed * 0.4);
+    f32[11] = Math.max(f32[10] + 6, peakSpeed * 0.95);
+    f32[12] = Math.max(10, peakSpeed * 0.8);
+    f32[13] = Math.max(f32[12] + 8, peakSpeed * 1.45);
+    f32[14] = 0;
+    f32[15] = 0;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 
@@ -414,6 +434,7 @@ export class PbfSolver {
 
   public destroy(): void {
     this.velBuffer.destroy();
+    this.foamBuffer.destroy();
     this.predictedBuffer.destroy();
     this.lambdaBuffer.destroy();
     this.deltaBuffer.destroy();

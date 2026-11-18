@@ -30,6 +30,7 @@ export const SIM_CONFIG = {
   MIN_WAVE_PERIOD: 0.4,
   MAX_WAVE_PERIOD: 4,
   FILL_FRACTION: 0.55,
+  FOAM_LIFETIME: 1.25,
 } as const;
 
 export type WaveParams = {

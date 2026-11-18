@@ -159,6 +159,7 @@ export class Engine {
       device,
       format,
       this.posBuffer,
+      this.solver.getFoamBuffer(),
       numParticles,
       derived.particleRadius
     );
@@ -198,7 +199,7 @@ export class Engine {
       colorAttachments: [
         {
           view: currentTexture.createView(),
-          clearValue: { r: 0.06, g: 0.07, b: 0.1, a: 1.0 },
+          clearValue: { r: 0.04, g: 0.08, b: 0.12, a: 1.0 },
           loadOp: 'clear',
           storeOp: 'store',
         },

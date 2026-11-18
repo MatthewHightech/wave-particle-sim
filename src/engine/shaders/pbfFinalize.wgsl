@@ -6,6 +6,7 @@
 @group(0) @binding(5) var<storage, read> cellStarts: array<u32>;
 @group(0) @binding(6) var<storage, read> cellParticles: array<u32>;
 @group(0) @binding(7) var<storage, read> boundaryVel: array<vec2f>;
+@group(0) @binding(8) var<storage, read_write> foam: array<f32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -19,6 +20,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var xsph = vec2f(0.0);
   var visc = vec2f(0.0);
   var wSum = 0.0;
+  var maxClosing = 0.0;
 
   for (var ox = -1; ox <= 1; ox++) {
     for (var oy = -1; oy <= 1; oy++) {
@@ -52,9 +54,17 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
         let rLen = sqrt(r2);
         if (rLen > 1e-6) {
+          let rHat = r / rLen;
           let closing = dot(vji, r);
           if (closing < 0.0) {
-            visc += (closing / rLen) * (r / rLen) * w;
+            visc += (closing / rLen) * rHat * w;
+          }
+
+          let approach = -min(dot(newVel - vj, rHat), 0.0);
+          if (j < params.numParticles) {
+            maxClosing = max(maxClosing, approach);
+          } else {
+            maxClosing = max(maxClosing, approach * 0.6);
           }
         }
       }
@@ -68,6 +78,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   newVel *= max(0.0, 1.0 - VELOCITY_DAMPING * params.dt);
 
+  let preBoundaryVel = newVel;
   let collided = apply_boundaries(
     newPos,
     newVel,
@@ -80,4 +91,31 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   pos[i] = collided.xy;
   vel[i] = collided.zw;
+
+  let wallImpact = length(preBoundaryVel - collided.zw) * 0.65;
+  let impact = max(maxClosing, wallImpact);
+  let impactFoam = smoothstep(
+    params.foamImpactStart,
+    params.foamImpactFull,
+    impact
+  );
+  let speed = length(collided.zw);
+  let spray = max(collided.w, 0.0);
+  let motionFoam = smoothstep(
+    params.foamMotionStart,
+    params.foamMotionFull,
+    speed
+  );
+  let sprayFoam = smoothstep(
+    params.foamMotionStart * 0.55,
+    params.foamMotionFull * 0.85,
+    spray
+  );
+  let targetFoam = clamp(
+    impactFoam * 0.8 + motionFoam * 0.35 + sprayFoam * 0.25,
+    0.0,
+    1.0
+  );
+  let decay = exp(-params.dt / max(FOAM_LIFETIME, 1e-3));
+  foam[i] = clamp(max(targetFoam, foam[i] * decay), 0.0, 1.0);
 }
