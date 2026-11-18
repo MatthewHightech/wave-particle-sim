@@ -11,6 +11,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   predicted[i] = clamp_to_domain(
     moved,
     params.leftWallX,
+    params.pistonTipY,
+    params.pistonTipOffsetX,
     params.pivotFloorX,
     vec2f(params.midFloorX, params.midFloorY),
     params.rightFloorY

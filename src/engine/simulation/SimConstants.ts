@@ -1,4 +1,9 @@
-import { defaultFloorShape, floorHeightAt, type FloorShape } from './tankFloor';
+import {
+  defaultFloorShape,
+  floorBaseY,
+  floorHeightAt,
+  type FloorShape,
+} from './tankFloor';
 
 export const SIM_CONFIG = {
   DOMAIN_WIDTH: 112,
@@ -19,7 +24,12 @@ export const SIM_CONFIG = {
   VELOCITY_DAMPING: 1.2,
   MASS: 1.0,
   BOUNDARY_LAYERS: 2,
-  LEFT_WALL_BASE_FACTOR: 1.0,
+  PISTON_BEAM_WIDTH: 2.2,
+  PISTON_ROD_HEIGHT: 1.15,
+  PISTON_TIP_MIN_OFFSET: 1.2,
+  PISTON_TIP_MAX_OFFSET: 16,
+  PISTON_EDGE_MARGIN: 0.6,
+  PISTON_HEIGHT_FACTOR: 0.52,
   DEFAULT_PARTICLE_SPACING: 0.32,
   DEFAULT_WAVE_AMPLITUDE: 5.0,
   DEFAULT_WAVE_PERIOD: 1 / 0.85,
@@ -84,9 +94,35 @@ export function deriveParticles(spacing: number): ParticleDerived {
   };
 }
 
+export function leftWallBase(boundary: number): number {
+  return Math.max(
+    boundary,
+    SIM_CONFIG.MAX_WAVE_AMPLITUDE +
+      SIM_CONFIG.PISTON_BEAM_WIDTH +
+      SIM_CONFIG.PISTON_EDGE_MARGIN
+  );
+}
+
+export function pistonMaxWallX(boundary: number): number {
+  return leftWallBase(boundary) + SIM_CONFIG.MAX_WAVE_AMPLITUDE;
+}
+
+export function pistonMaxReachX(boundary: number): number {
+  return pistonMaxWallX(boundary) + SIM_CONFIG.PISTON_TIP_MAX_OFFSET;
+}
+
+export function pistonHeightRange(boundary: number): { yMin: number; yMax: number } {
+  const yMin = floorBaseY(boundary);
+  const yMax = Math.min(
+    SIM_CONFIG.DOMAIN_HEIGHT - boundary * 0.35,
+    yMin + SIM_CONFIG.DOMAIN_HEIGHT * SIM_CONFIG.PISTON_HEIGHT_FACTOR
+  );
+  return { yMin, yMax };
+}
+
 export function particleDomain(amplitude: number, boundary: number) {
   return {
-    minX: boundary * SIM_CONFIG.LEFT_WALL_BASE_FACTOR + amplitude,
+    minX: leftWallBase(boundary) + amplitude,
     maxX: SIM_CONFIG.DOMAIN_WIDTH - boundary,
     minY: boundary,
     maxY: SIM_CONFIG.DOMAIN_HEIGHT - boundary,

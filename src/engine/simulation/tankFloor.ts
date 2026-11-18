@@ -1,4 +1,4 @@
-import { SIM_CONFIG } from './SimConstants';
+import { pistonMaxReachX, SIM_CONFIG } from './SimConstants';
 
 export const TANK_FLOOR = {
   MAX_RIGHT_Y_FACTOR: 0.48,
@@ -18,7 +18,7 @@ export type FloorPoint = {
 };
 
 export function floorMinPivotX(boundary: number): number {
-  return boundary * SIM_CONFIG.LEFT_WALL_BASE_FACTOR;
+  return pistonMaxReachX(boundary) + TANK_FLOOR.MID_EDGE_MARGIN;
 }
 
 export function floorBaseY(boundary: number): number {

@@ -17,6 +17,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     v,
     params.leftWallX,
     params.leftWallVx,
+    params.pistonTipY,
+    params.pistonTipOffsetX,
     params.pivotFloorX,
     vec2f(params.midFloorX, params.midFloorY),
     params.rightFloorY

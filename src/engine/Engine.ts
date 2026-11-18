@@ -1,5 +1,7 @@
 import { WebGPUContext } from './core/WebGPUContext';
+import { FloorRenderer } from './rendering/FloorRenderer';
 import { ParticleRenderer } from './rendering/ParticleRenderer';
+import { PistonRenderer } from './rendering/PistonRenderer';
 import { PbfSolver } from './simulation/PbfSolver';
 import {
   deriveParticles,
@@ -9,6 +11,11 @@ import {
 } from './simulation/SimConstants';
 import { spawnFluid } from './simulation/spawnFluid';
 import {
+  clampPistonTip,
+  defaultPistonTip,
+  type PistonTip,
+} from './simulation/pistonGeometry';
+import {
   clampFloorShape,
   defaultFloorShape,
   type FloorShape,
@@ -17,11 +24,14 @@ import {
 export type EngineSettings = WaveParams & {
   particleSpacing: number;
   floorShape: FloorShape;
+  pistonTip: PistonTip;
 };
 
 export class Engine {
   private gpu: WebGPUContext | null = null;
   private renderer: ParticleRenderer | null = null;
+  private floorRenderer: FloorRenderer | null = null;
+  private pistonRenderer: PistonRenderer | null = null;
   private solver: PbfSolver | null = null;
   private posBuffer: GPUBuffer | null = null;
   private animationFrameId: number | null = null;
@@ -32,6 +42,9 @@ export class Engine {
     periodSeconds: SIM_CONFIG.DEFAULT_WAVE_PERIOD,
     particleSpacing: SIM_CONFIG.DEFAULT_PARTICLE_SPACING,
     floorShape: defaultFloorShape(
+      deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
+    ),
+    pistonTip: defaultPistonTip(
       deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
     ),
   };
@@ -74,6 +87,7 @@ export class Engine {
     return {
       ...this.settings,
       floorShape: { ...this.settings.floorShape },
+      pistonTip: { ...this.settings.pistonTip },
     };
   }
 
@@ -93,6 +107,20 @@ export class Engine {
     const boundary = deriveParticles(this.settings.particleSpacing).boundary;
     this.settings.floorShape = clampFloorShape(floorShape, boundary);
     this.solver?.setFloorShape(this.settings.floorShape);
+  }
+
+  public getPistonTip(): PistonTip {
+    return { ...this.settings.pistonTip };
+  }
+
+  public setPistonTip(tip: PistonTip): void {
+    const boundary = deriveParticles(this.settings.particleSpacing).boundary;
+    this.settings.pistonTip = clampPistonTip(tip, boundary);
+    this.solver?.setPistonTip(this.settings.pistonTip);
+  }
+
+  public getLeftWallX(): number {
+    return this.solver?.getLeftWallX() ?? 0;
   }
 
   public setWaveAmplitude(amplitude: number): void {
@@ -130,6 +158,10 @@ export class Engine {
       this.settings.floorShape,
       derived.boundary
     );
+    this.settings.pistonTip = clampPistonTip(
+      this.settings.pistonTip,
+      derived.boundary
+    );
     const positions = spawnFluid(
       this.settings.particleSpacing,
       this.settings.amplitude,
@@ -153,7 +185,8 @@ export class Engine {
         amplitude: this.settings.amplitude,
         periodSeconds: this.settings.periodSeconds,
       },
-      this.settings.floorShape
+      this.settings.floorShape,
+      this.settings.pistonTip
     );
     this.renderer = new ParticleRenderer(
       device,
@@ -163,13 +196,19 @@ export class Engine {
       numParticles,
       derived.particleRadius
     );
+    this.floorRenderer = new FloorRenderer(device, format, derived.boundary);
+    this.pistonRenderer = new PistonRenderer(device, format, derived.boundary);
   }
 
   private teardownSimulation(): void {
     this.renderer?.destroy();
+    this.floorRenderer?.destroy();
+    this.pistonRenderer?.destroy();
     this.solver?.destroy();
     this.posBuffer?.destroy();
     this.renderer = null;
+    this.floorRenderer = null;
+    this.pistonRenderer = null;
     this.solver = null;
     this.posBuffer = null;
   }
@@ -184,7 +223,15 @@ export class Engine {
   }
 
   private render(): void {
-    if (!this.gpu || !this.renderer || !this.solver) return;
+    if (
+      !this.gpu ||
+      !this.renderer ||
+      !this.floorRenderer ||
+      !this.pistonRenderer ||
+      !this.solver
+    ) {
+      return;
+    }
     const { device, context } = this.gpu;
 
     const currentTexture = context.getCurrentTexture();
@@ -206,6 +253,19 @@ export class Engine {
       ],
     });
 
+    this.floorRenderer.render(
+      renderPass,
+      currentTexture.width,
+      currentTexture.height,
+      this.settings.floorShape
+    );
+    this.pistonRenderer.render(
+      renderPass,
+      currentTexture.width,
+      currentTexture.height,
+      this.solver.getLeftWallX(),
+      this.settings.pistonTip
+    );
     this.renderer.render(renderPass, currentTexture.width, currentTexture.height);
     renderPass.end();
 

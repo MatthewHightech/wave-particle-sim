@@ -4,6 +4,11 @@ export function buildPbfHeader(derived: ParticleDerived): string {
   const maxX = SIM_CONFIG.DOMAIN_WIDTH - derived.boundary;
   const minY = derived.boundary;
   const maxY = SIM_CONFIG.DOMAIN_HEIGHT - derived.boundary;
+  const pistonYMin = derived.boundary;
+  const pistonYMax = Math.min(
+    SIM_CONFIG.DOMAIN_HEIGHT - derived.boundary * 0.35,
+    pistonYMin + SIM_CONFIG.DOMAIN_HEIGHT * SIM_CONFIG.PISTON_HEIGHT_FACTOR
+  );
 
   return `
 const DOMAIN_WIDTH: f32 = ${SIM_CONFIG.DOMAIN_WIDTH}.0;
@@ -28,6 +33,10 @@ const HASH_HEIGHT: i32 = ${derived.hashHeight};
 const PARTICLE_MAX_X: f32 = ${maxX};
 const PARTICLE_MIN_Y: f32 = ${minY};
 const PARTICLE_MAX_Y: f32 = ${maxY};
+const PISTON_Y_MIN: f32 = ${pistonYMin};
+const PISTON_Y_MAX: f32 = ${pistonYMax};
+const PISTON_TIP_MIN_OFFSET: f32 = ${SIM_CONFIG.PISTON_TIP_MIN_OFFSET};
+const PISTON_TIP_MAX_OFFSET: f32 = ${SIM_CONFIG.PISTON_TIP_MAX_OFFSET};
 const PI: f32 = 3.141592653589793;
 
 struct PbfUniforms {
@@ -45,8 +54,8 @@ struct PbfUniforms {
   foamImpactFull: f32,
   foamMotionStart: f32,
   foamMotionFull: f32,
-  _pad0: f32,
-  _pad1: f32,
+  pistonTipY: f32,
+  pistonTipOffsetX: f32,
 };
 
 fn poly6(r2: f32) -> f32 {
@@ -108,18 +117,89 @@ fn project_to_floor(p: vec2f, pivotFloorX: f32, midFloor: vec2f, rightFloorY: f3
   return closest;
 }
 
+fn piston_face_x(y: f32, wallX: f32, tipY: f32, tipOffsetX: f32) -> f32 {
+  let tip = clamp(tipY, PISTON_Y_MIN, PISTON_Y_MAX);
+  let tipX = wallX + clamp(tipOffsetX, PISTON_TIP_MIN_OFFSET, PISTON_TIP_MAX_OFFSET);
+  if (y >= tip) {
+    let span = max(PISTON_Y_MAX - tip, 1e-6);
+    let t = clamp((y - tip) / span, 0.0, 1.0);
+    return mix(tipX, wallX, t);
+  }
+  let span = max(tip - PISTON_Y_MIN, 1e-6);
+  let t = clamp((tip - y) / span, 0.0, 1.0);
+  return mix(tipX, wallX, t);
+}
+
+fn apply_piston(
+  p: vec2f,
+  v: vec2f,
+  wallX: f32,
+  wallVx: f32,
+  tipY: f32,
+  tipOffsetX: f32
+) -> vec4f {
+  var pos = p;
+  var vel = v;
+  let tip = vec2f(
+    wallX + clamp(tipOffsetX, PISTON_TIP_MIN_OFFSET, PISTON_TIP_MAX_OFFSET),
+    clamp(tipY, PISTON_Y_MIN, PISTON_Y_MAX)
+  );
+  let topLeft = vec2f(wallX, PISTON_Y_MAX);
+  let bottomLeft = vec2f(wallX, PISTON_Y_MIN);
+
+  if (pos.y >= tip.y) {
+    let closest = segment_closest(pos, tip, topLeft);
+    let n = segment_normal(tip, topLeft);
+    let fluidN = select(n, -n, n.x < 0.0);
+    let dist = dot(pos - closest, fluidN);
+    if (dist < 0.0) {
+      pos = closest;
+      let vn = dot(vel, fluidN);
+      if (vn < wallVx * fluidN.x) {
+        vel = vel + fluidN * (wallVx * fluidN.x - vn);
+      }
+    }
+  } else {
+    let closest = segment_closest(pos, tip, bottomLeft);
+    let n = segment_normal(tip, bottomLeft);
+    let fluidN = select(n, -n, n.x < 0.0);
+    let dist = dot(pos - closest, fluidN);
+    if (dist < 0.0) {
+      pos = closest;
+      let vn = dot(vel, fluidN);
+      if (vn < wallVx * fluidN.x) {
+        vel = vel + fluidN * (wallVx * fluidN.x - vn);
+      }
+    }
+  }
+
+  let faceX = piston_face_x(pos.y, wallX, tipY, tipOffsetX);
+  if (pos.x < faceX) {
+    pos.x = faceX;
+    if (vel.x < wallVx) {
+      vel.x = wallVx;
+    }
+  }
+
+  return vec4f(pos, vel);
+}
+
 fn clamp_to_domain(
   p: vec2f,
   leftWallX: f32,
+  pistonTipY: f32,
+  pistonTipOffsetX: f32,
   pivotFloorX: f32,
   midFloor: vec2f,
   rightFloorY: f32
 ) -> vec2f {
   var pos = clamp(
     p,
-    vec2f(leftWallX, 0.0),
+    vec2f(0.0, 0.0),
     vec2f(PARTICLE_MAX_X, PARTICLE_MAX_Y)
   );
+  let faceX = piston_face_x(pos.y, leftWallX, pistonTipY, pistonTipOffsetX);
+  pos.x = max(pos.x, faceX);
   return project_to_floor(pos, pivotFloorX, midFloor, rightFloorY);
 }
 
@@ -128,6 +208,8 @@ fn apply_boundaries(
   v: vec2f,
   leftWallX: f32,
   leftWallVx: f32,
+  pistonTipY: f32,
+  pistonTipOffsetX: f32,
   pivotFloorX: f32,
   midFloor: vec2f,
   rightFloorY: f32
@@ -135,12 +217,16 @@ fn apply_boundaries(
   var pos = p;
   var vel = v;
 
-  if (pos.x < leftWallX) {
-    pos.x = leftWallX;
-    if (vel.x < leftWallVx) {
-      vel.x = leftWallVx;
-    }
-  }
+  let pistonHit = apply_piston(
+    pos,
+    vel,
+    leftWallX,
+    leftWallVx,
+    pistonTipY,
+    pistonTipOffsetX
+  );
+  pos = pistonHit.xy;
+  vel = pistonHit.zw;
 
   if (pos.x > PARTICLE_MAX_X) {
     pos.x = PARTICLE_MAX_X;

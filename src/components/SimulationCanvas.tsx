@@ -5,10 +5,15 @@ import {
   SIM_CONFIG,
 } from '../engine/simulation/SimConstants';
 import {
+  defaultPistonTip,
+  type PistonTip,
+} from '../engine/simulation/pistonGeometry';
+import {
   defaultFloorShape,
   type FloorShape,
 } from '../engine/simulation/tankFloor';
 import { FloorAngleHandle } from './FloorAngleHandle';
+import { PistonTipHandle } from './PistonTipHandle';
 import { SimControls } from './SimControls';
 
 export function SimulationCanvas() {
@@ -28,6 +33,11 @@ export function SimulationCanvas() {
   );
   const [floorShape, setFloorShape] = useState<FloorShape>(() =>
     defaultFloorShape(
+      deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
+    )
+  );
+  const [pistonTip, setPistonTip] = useState<PistonTip>(() =>
+    defaultPistonTip(
       deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
     )
   );
@@ -75,15 +85,27 @@ export function SimulationCanvas() {
       <div className="relative min-w-0 flex-1">
         <canvas ref={canvasRef} className="block h-screen w-full" />
         {ready && (
-          <FloorAngleHandle
-            canvas={canvasRef.current}
-            particleSpacing={particleSpacing}
-            floorShape={floorShape}
-            onFloorShapeChange={(shape) => {
-              setFloorShape(shape);
-              engineRef.current?.setFloorShape(shape);
-            }}
-          />
+          <>
+            <FloorAngleHandle
+              canvas={canvasRef.current}
+              particleSpacing={particleSpacing}
+              floorShape={floorShape}
+              onFloorShapeChange={(shape) => {
+                setFloorShape(shape);
+                engineRef.current?.setFloorShape(shape);
+              }}
+            />
+            <PistonTipHandle
+              canvas={canvasRef.current}
+              particleSpacing={particleSpacing}
+              tip={pistonTip}
+              getWallX={() => engineRef.current?.getLeftWallX() ?? 0}
+              onTipChange={(value) => {
+                setPistonTip(value);
+                engineRef.current?.setPistonTip(value);
+              }}
+            />
+          </>
         )}
         {!ready && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-stone-400">
@@ -122,6 +144,10 @@ export function SimulationCanvas() {
           const nextShape = engineRef.current?.getFloorShape();
           if (nextShape) {
             setFloorShape(nextShape);
+          }
+          const nextTip = engineRef.current?.getPistonTip();
+          if (nextTip) {
+            setPistonTip(nextTip);
           }
         }}
       />

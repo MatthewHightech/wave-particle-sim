@@ -1,9 +1,18 @@
 import {
   deriveParticles,
+  leftWallBase,
   leftWallState,
+  pistonHeightRange,
   SIM_CONFIG,
   type ParticleDerived,
 } from './SimConstants';
+import {
+  clampPistonTip,
+  defaultPistonTip,
+  pistonFaceNormal,
+  pistonFaceX,
+  type PistonTip,
+} from './pistonGeometry';
 import {
   clampFloorShape,
   defaultFloorShape,
@@ -44,15 +53,18 @@ function pushParticle(points: number[], x: number, y: number): void {
 
 export function spawnBoundary(
   spacing: number,
-  floorShape = defaultFloorShape(deriveParticles(spacing).boundary)
+  floorShape = defaultFloorShape(deriveParticles(spacing).boundary),
+  pistonTip = defaultPistonTip(deriveParticles(spacing).boundary)
 ): BoundaryParticles {
   const derived: ParticleDerived = deriveParticles(spacing);
   const layers = SIM_CONFIG.BOUNDARY_LAYERS;
   const baseY = floorBaseY(derived.boundary);
   const maxY = SIM_CONFIG.DOMAIN_HEIGHT - derived.boundary;
-  const wallBase = derived.boundary * SIM_CONFIG.LEFT_WALL_BASE_FACTOR;
+  const wallBase = leftWallBase(derived.boundary);
   const wall = leftWallState(0, 0, 1, wallBase);
   const shape = clampFloorShape(floorShape, derived.boundary);
+  const tip = clampPistonTip(pistonTip, derived.boundary);
+  const pistonSpan = pistonHeightRange(derived.boundary);
 
   const topPoints: number[] = [];
   for (let layer = 0; layer < layers; layer++) {
@@ -89,18 +101,9 @@ export function spawnBoundary(
   const leftOffsets: number[] = [];
   const leftYs: number[] = [];
   for (let layer = 0; layer < layers; layer++) {
-    const offsetX = -(0.5 + layer) * spacing;
-    for (let y = baseY; y <= maxY; y += spacing) {
-      const x = wall.x + offsetX;
-      if (
-        x < 0 ||
-        x >= SIM_CONFIG.DOMAIN_WIDTH ||
-        y < 0 ||
-        y >= SIM_CONFIG.DOMAIN_HEIGHT
-      ) {
-        continue;
-      }
-      leftOffsets.push(offsetX);
+    const inset = (0.5 + layer) * spacing;
+    for (let y = pistonSpan.yMin; y <= pistonSpan.yMax; y += spacing) {
+      leftOffsets.push(inset);
       leftYs.push(y);
     }
   }
@@ -128,7 +131,13 @@ export function spawnBoundary(
   };
 
   writeFloorBoundary(boundary, derived.spacing, derived.boundary, shape);
-  writeLeftWallBoundary(boundary, wall.x, wall.vx);
+  writeLeftWallBoundary(
+    boundary,
+    wall.x,
+    wall.vx,
+    tip,
+    derived.boundary
+  );
   return boundary;
 }
 
@@ -188,14 +197,21 @@ export function writeFloorBoundary(
 export function writeLeftWallBoundary(
   boundary: BoundaryParticles,
   leftWallX: number,
-  leftWallVx: number
+  leftWallVx: number,
+  pistonTip: PistonTip,
+  particleBoundary: number
 ): void {
+  const tip = clampPistonTip(pistonTip, particleBoundary);
   const { numStatic, numLeftWall, leftWallOffsets, leftWallYs, positions, velocities } =
     boundary;
   for (let i = 0; i < numLeftWall; i++) {
+    const y = leftWallYs[i];
+    const inset = leftWallOffsets[i];
+    const faceX = pistonFaceX(y, leftWallX, tip, particleBoundary);
+    const normal = pistonFaceNormal(y, tip, particleBoundary);
     const idx = (numStatic + i) * 2;
-    positions[idx] = leftWallX + leftWallOffsets[i];
-    positions[idx + 1] = leftWallYs[i];
+    positions[idx] = faceX - normal.x * inset;
+    positions[idx + 1] = y - normal.y * inset;
     velocities[idx] = leftWallVx;
     velocities[idx + 1] = 0;
   }

@@ -9,6 +9,7 @@ import computeDeltaCode from '../shaders/pbfComputeDelta.wgsl?raw';
 import applyDeltaCode from '../shaders/pbfApplyDelta.wgsl?raw';
 import finalizeCode from '../shaders/pbfFinalize.wgsl?raw';
 import {
+  leftWallBase,
   leftWallState,
   SIM_CONFIG,
   type ParticleDerived,
@@ -20,6 +21,11 @@ import {
   writeLeftWallBoundary,
   type BoundaryParticles,
 } from './spawnBoundary';
+import {
+  clampPistonTip,
+  defaultPistonTip,
+  type PistonTip,
+} from './pistonGeometry';
 import {
   clampFloorShape,
   defaultFloorShape,
@@ -35,6 +41,7 @@ export class PbfSolver {
   private wave: WaveParams;
   private simTime = 0;
   private floorShape: FloorShape;
+  private pistonTip: PistonTip;
   private boundary: BoundaryParticles;
 
   private predictedBuffer: GPUBuffer;
@@ -76,14 +83,20 @@ export class PbfSolver {
     numParticles: number,
     derived: ParticleDerived,
     wave: WaveParams,
-    floorShape = defaultFloorShape(derived.boundary)
+    floorShape = defaultFloorShape(derived.boundary),
+    pistonTip = defaultPistonTip(derived.boundary)
   ) {
     this.device = device;
     this.numParticles = numParticles;
     this.derived = derived;
     this.wave = { ...wave };
     this.floorShape = clampFloorShape(floorShape, derived.boundary);
-    this.boundary = spawnBoundary(derived.spacing, this.floorShape);
+    this.pistonTip = clampPistonTip(pistonTip, derived.boundary);
+    this.boundary = spawnBoundary(
+      derived.spacing,
+      this.floorShape,
+      this.pistonTip
+    );
     this.numTotal = numParticles + this.boundary.positions.length / 2;
     this.numHashCells = derived.hashWidth * derived.hashHeight;
     this.header = buildPbfHeader(derived);
@@ -272,6 +285,47 @@ export class PbfSolver {
     return this.foamBuffer;
   }
 
+  public getLeftWallX(): number {
+    return leftWallState(
+      this.simTime,
+      this.wave.amplitude,
+      this.wave.periodSeconds,
+      leftWallBase(this.derived.boundary)
+    ).x;
+  }
+
+  public getPistonTip(): PistonTip {
+    return { ...this.pistonTip };
+  }
+
+  public setPistonTip(tip: PistonTip): void {
+    this.pistonTip = clampPistonTip(tip, this.derived.boundary);
+    const wall = leftWallState(
+      this.simTime,
+      this.wave.amplitude,
+      this.wave.periodSeconds,
+      leftWallBase(this.derived.boundary)
+    );
+    writeLeftWallBoundary(
+      this.boundary,
+      wall.x,
+      wall.vx,
+      this.pistonTip,
+      this.derived.boundary
+    );
+    this.device.queue.writeBuffer(
+      this.predictedBuffer,
+      this.numParticles * 8,
+      this.boundary.positions
+    );
+    this.device.queue.writeBuffer(
+      this.boundaryVelBuffer,
+      0,
+      this.boundary.velocities
+    );
+    this.writeUniforms(this.simTime);
+  }
+
   public getFloorShape(): FloorShape {
     return { ...this.floorShape };
   }
@@ -318,7 +372,7 @@ export class PbfSolver {
       timeSeconds,
       this.wave.amplitude,
       this.wave.periodSeconds,
-      this.derived.boundary
+      leftWallBase(this.derived.boundary)
     );
     writeFloorBoundary(
       this.boundary,
@@ -326,7 +380,13 @@ export class PbfSolver {
       this.derived.boundary,
       this.floorShape
     );
-    writeLeftWallBoundary(this.boundary, wall.x, wall.vx);
+    writeLeftWallBoundary(
+      this.boundary,
+      wall.x,
+      wall.vx,
+      this.pistonTip,
+      this.derived.boundary
+    );
     this.device.queue.writeBuffer(
       this.predictedBuffer,
       this.numParticles * 8,
@@ -344,7 +404,7 @@ export class PbfSolver {
       timeSeconds,
       this.wave.amplitude,
       this.wave.periodSeconds,
-      this.derived.boundary
+      leftWallBase(this.derived.boundary)
     );
     const data = new ArrayBuffer(64);
     const f32 = new Float32Array(data);
@@ -366,8 +426,8 @@ export class PbfSolver {
     f32[11] = Math.max(f32[10] + 6, peakSpeed * 0.95);
     f32[12] = Math.max(10, peakSpeed * 0.8);
     f32[13] = Math.max(f32[12] + 8, peakSpeed * 1.45);
-    f32[14] = 0;
-    f32[15] = 0;
+    f32[14] = this.pistonTip.y;
+    f32[15] = this.pistonTip.offsetX;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
   }
 
