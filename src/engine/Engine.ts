@@ -197,7 +197,12 @@ export class Engine {
       derived.particleRadius
     );
     this.floorRenderer = new FloorRenderer(device, format, derived.boundary);
-    this.pistonRenderer = new PistonRenderer(device, format, derived.boundary);
+    this.pistonRenderer = new PistonRenderer(
+      device,
+      format,
+      derived.boundary,
+      derived.particleRadius
+    );
   }
 
   private teardownSimulation(): void {
@@ -253,20 +258,24 @@ export class Engine {
       ],
     });
 
+    const canvas = this.gpu.context.canvas as HTMLCanvasElement;
+    const cssWidth = Math.max(canvas.clientWidth, 1);
+    const cssHeight = Math.max(canvas.clientHeight, 1);
+
     this.floorRenderer.render(
       renderPass,
-      currentTexture.width,
-      currentTexture.height,
+      cssWidth,
+      cssHeight,
       this.settings.floorShape
     );
+    this.renderer.render(renderPass, cssWidth, cssHeight);
     this.pistonRenderer.render(
       renderPass,
-      currentTexture.width,
-      currentTexture.height,
+      cssWidth,
+      cssHeight,
       this.solver.getLeftWallX(),
       this.settings.pistonTip
     );
-    this.renderer.render(renderPass, currentTexture.width, currentTexture.height);
     renderPass.end();
 
     device.queue.submit([commandEncoder.finish()]);

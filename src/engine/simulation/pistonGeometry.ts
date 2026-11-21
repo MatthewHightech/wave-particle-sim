@@ -31,12 +31,12 @@ export function clampPistonTip(tip: PistonTip, boundary: number): PistonTip {
 }
 
 export function defaultPistonTip(boundary: number): PistonTip {
-  const { yMin, yMax } = pistonHeightRange(boundary);
+  const { yMin } = pistonHeightRange(boundary);
   return {
     offsetX:
       (SIM_CONFIG.PISTON_TIP_MIN_OFFSET + SIM_CONFIG.PISTON_TIP_MAX_OFFSET) *
       0.5,
-    y: (yMin + yMax) * 0.5,
+    y: yMin,
   };
 }
 

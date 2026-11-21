@@ -1,6 +1,7 @@
 import {
   useEffect,
   useEffectEvent,
+  useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -26,15 +27,19 @@ export function PistonTipHandle({
   getWallX,
   onTipChange,
 }: PistonTipHandleProps) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const tipRef = useRef(tip);
+  const getWallXRef = useRef(getWallX);
+  tipRef.current = tip;
+  getWallXRef.current = getWallX;
   const [layout, setLayout] = useState({ width: 0, height: 0 });
-  const [wallX, setWallX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const applyDrag = useEffectEvent((worldX: number, worldY: number) => {
     const boundary = deriveParticles(particleSpacing).boundary;
     onTipChange(
       clampPistonTip(
         {
-          offsetX: worldX - getWallX(),
+          offsetX: worldX - getWallXRef.current(),
           y: worldY,
         },
         boundary
@@ -55,14 +60,28 @@ export function PistonTipHandle({
   }, [canvas]);
 
   useEffect(() => {
+    if (!canvas || layout.width <= 0 || layout.height <= 0) return;
+
     let frame = 0;
     const tick = () => {
-      setWallX(getWallX());
+      const button = buttonRef.current;
+      if (button) {
+        const boundary = deriveParticles(particleSpacing).boundary;
+        const clamped = clampPistonTip(tipRef.current, boundary);
+        const screen = worldToCss(
+          getWallXRef.current() + clamped.offsetX,
+          clamped.y,
+          layout.width,
+          layout.height
+        );
+        button.style.left = `${screen.x}px`;
+        button.style.top = `${screen.y}px`;
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [getWallX]);
+  }, [canvas, layout, particleSpacing]);
 
   useEffect(() => {
     if (!dragging || !canvas) return;
@@ -93,23 +112,14 @@ export function PistonTipHandle({
     return null;
   }
 
-  const boundary = deriveParticles(particleSpacing).boundary;
-  const clamped = clampPistonTip(tip, boundary);
-  const screen = worldToCss(
-    wallX + clamped.offsetX,
-    clamped.y,
-    layout.width,
-    layout.height
-  );
-
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label="Drag to flex the piston tip"
-      className={`pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-stone-950 bg-emerald-400 shadow-md transition ${
+      className={`pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-stone-950 bg-emerald-400 shadow-md ${
         dragging ? 'scale-125 cursor-grabbing' : 'cursor-move hover:scale-110'
       }`}
-      style={{ left: screen.x, top: screen.y }}
       onPointerDown={(event: ReactPointerEvent<HTMLButtonElement>) => {
         event.preventDefault();
         setDragging(true);

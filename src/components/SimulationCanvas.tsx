@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Engine } from '../engine/Engine';
 import {
   deriveParticles,
@@ -69,6 +69,44 @@ export function SimulationCanvas() {
     };
   }, []);
 
+  const play = useEffectEvent(() => {
+    engineRef.current?.play();
+    setRunning(true);
+  });
+
+  const pause = useEffectEvent(() => {
+    engineRef.current?.pause();
+    setRunning(false);
+  });
+
+  const toggleRunning = useEffectEvent(() => {
+    if (running) {
+      pause();
+    } else {
+      play();
+    }
+  });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      toggleRunning();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-950 p-8 font-mono text-[#ff6b6b]">
@@ -81,52 +119,49 @@ export function SimulationCanvas() {
   }
 
   return (
-    <div className="flex min-h-screen bg-stone-950 text-stone-100">
-      <div className="relative min-w-0 flex-1">
-        <canvas ref={canvasRef} className="block h-screen w-full" />
-        {ready && (
-          <>
-            <FloorAngleHandle
-              canvas={canvasRef.current}
-              particleSpacing={particleSpacing}
-              floorShape={floorShape}
-              onFloorShapeChange={(shape) => {
-                setFloorShape(shape);
-                engineRef.current?.setFloorShape(shape);
-              }}
-            />
-            <PistonTipHandle
-              canvas={canvasRef.current}
-              particleSpacing={particleSpacing}
-              tip={pistonTip}
-              getWallX={() => engineRef.current?.getLeftWallX() ?? 0}
-              onTipChange={(value) => {
-                setPistonTip(value);
-                engineRef.current?.setPistonTip(value);
-              }}
-            />
-          </>
-        )}
-        {!ready && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-stone-400">
-            Starting simulation…
-          </div>
-        )}
-      </div>
-
+    <div className="relative h-screen w-full bg-stone-950 text-stone-100">
+      <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" />
+      {ready && (
+        <>
+          <FloorAngleHandle
+            canvas={canvasRef.current}
+            particleSpacing={particleSpacing}
+            floorShape={floorShape}
+            onFloorShapeChange={(shape) => {
+              setFloorShape(shape);
+              engineRef.current?.setFloorShape(shape);
+            }}
+          />
+          <PistonTipHandle
+            canvas={canvasRef.current}
+            particleSpacing={particleSpacing}
+            tip={pistonTip}
+            getWallX={() => engineRef.current?.getLeftWallX() ?? 0}
+            onTipChange={(value) => {
+              setPistonTip(value);
+              engineRef.current?.setPistonTip(value);
+            }}
+          />
+        </>
+      )}
+      <p className="pointer-events-auto absolute top-5 left-5 z-10 text-xs text-stone-400">
+        Built by{' '}
+        <a
+          href="https://mattsmith.sh/"
+          target="_blank"
+          rel="noreferrer"
+          className="cursor-pointer text-stone-200 underline-offset-2 transition hover:text-white hover:underline"
+        >
+          Matt Smith
+        </a>
+      </p>
       <SimControls
         running={running}
         amplitude={amplitude}
         periodSeconds={periodSeconds}
         particleSpacing={particleSpacing}
-        onPlay={() => {
-          engineRef.current?.play();
-          setRunning(true);
-        }}
-        onPause={() => {
-          engineRef.current?.pause();
-          setRunning(false);
-        }}
+        onPlay={play}
+        onPause={pause}
         onReset={() => {
           engineRef.current?.reset();
         }}
@@ -151,6 +186,11 @@ export function SimulationCanvas() {
           }
         }}
       />
+      {!ready && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-stone-400">
+          Starting simulation…
+        </div>
+      )}
     </div>
   );
 }

@@ -17,8 +17,29 @@ type SimControlsProps = {
   onParticleCountChange: (spacing: number) => void;
 };
 
+function ParamHint({ text }: { text: string }) {
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-label={text}
+        className="peer flex h-3.5 w-3.5 cursor-help items-center justify-center bg-stone-100/15 text-[9px] leading-none text-stone-300 transition hover:bg-stone-100/30 hover:text-stone-100"
+      >
+        ?
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute top-full right-0 z-20 mt-1.5 w-44 bg-stone-950/90 px-2 py-1.5 text-[10px] leading-snug text-stone-200 opacity-0 shadow-lg transition peer-hover:opacity-100 peer-focus-visible:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
 function SliderField({
   label,
+  hint,
   value,
   min,
   max,
@@ -27,6 +48,7 @@ function SliderField({
   onChange,
 }: {
   label: string;
+  hint: string;
   value: number;
   min: number;
   max: number;
@@ -35,10 +57,13 @@ function SliderField({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm text-stone-300">{label}</span>
-        <span className="font-mono text-xs text-stone-400">{display}</span>
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-3 text-xs text-stone-200">
+        <span className="flex items-center gap-1.5">
+          <span>{label}</span>
+          <ParamHint text={hint} />
+        </span>
+        <span className="font-mono text-[11px] text-stone-400">{display}</span>
       </div>
       <input
         type="range"
@@ -47,9 +72,10 @@ function SliderField({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-stone-700 accent-sky-400"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-stone-500/40 accent-stone-100"
+        aria-label={label}
       />
-    </label>
+    </div>
   );
 }
 
@@ -76,25 +102,19 @@ export function SimControls({
   );
 
   return (
-    <aside className="flex w-full max-w-sm flex-col gap-6 border-l border-stone-800 bg-stone-950/90 p-5 text-stone-100 backdrop-blur-sm">
-      <div>
-        <h1 className="font-serif text-2xl tracking-tight text-stone-50">
-          Fluid Tank
-        </h1>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
+    <aside className="pointer-events-auto absolute top-5 right-5 z-10 flex w-56 flex-col gap-6 bg-transparent">
+      <div className="flex gap-3">
         <button
           type="button"
           onClick={running ? onPause : onPlay}
-          className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-stone-950 transition hover:bg-sky-400"
+          className="cursor-pointer bg-stone-100/15 px-3 py-1.5 text-sm text-stone-100 transition hover:bg-stone-100/30"
         >
-          {running ? 'Stop' : 'Start'}
+          {running ? 'Pause' : 'Start'}
         </button>
         <button
           type="button"
           onClick={onReset}
-          className="rounded-md border border-stone-600 px-4 py-2 text-sm text-stone-200 transition hover:border-stone-400 hover:bg-stone-900"
+          className="cursor-pointer bg-stone-100/10 px-3 py-1.5 text-sm text-stone-300 transition hover:bg-stone-100/25"
         >
           Reset
         </button>
@@ -102,34 +122,40 @@ export function SimControls({
 
       <div className="flex flex-col gap-5">
         <SliderField
-          label="Wave amplitude"
+          label="Amplitude"
+          hint="How far the piston travels each stroke. Higher values make stronger waves."
           value={amplitude}
           min={SIM_CONFIG.MIN_WAVE_AMPLITUDE}
           max={SIM_CONFIG.MAX_WAVE_AMPLITUDE}
           step={0.1}
-          display={`${amplitude.toFixed(1)} cells`}
+          display={amplitude.toFixed(1)}
           onChange={onAmplitudeChange}
         />
         <SliderField
-          label="Wave period"
+          label="Period"
+          hint="Time for one full piston stroke. Shorter periods produce faster waves."
           value={periodSeconds}
           min={SIM_CONFIG.MIN_WAVE_PERIOD}
           max={SIM_CONFIG.MAX_WAVE_PERIOD}
           step={0.05}
-          display={`${periodSeconds.toFixed(2)} s`}
+          display={`${periodSeconds.toFixed(2)}s`}
           onChange={onPeriodChange}
         />
         <SliderField
-          label="Particle count"
+          label="Particles"
+          hint="Number of fluid particles. More particles look smoother but cost more performance."
           value={particleCount}
           min={minCount}
           max={maxCount}
           step={100}
-          display={`${particleCount.toLocaleString()} particles`}
+          display={particleCount.toLocaleString()}
           onChange={(count) => {
             onParticleCountChange(spacingForTargetCount(count, amplitude));
           }}
         />
+        <p className="text-[12px] leading-snug text-stone-500">
+          Drag the colored points to reshape the floor and piston tip.
+        </p>
       </div>
     </aside>
   );

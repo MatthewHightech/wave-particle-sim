@@ -1,12 +1,14 @@
 struct FloorUniforms {
   gridSize: vec2f,
-  aspectRatio: f32,
+  viewScale: vec2f,
+  viewOffset: vec2f,
   baseY: f32,
   pivotX: f32,
   midX: f32,
   midY: f32,
   rightX: f32,
   rightY: f32,
+  wallTop: f32,
   _pad0: f32,
   _pad1: f32,
   _pad2: f32,
@@ -57,14 +59,13 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-  let domainAspect = uniforms.gridSize.x / max(uniforms.gridSize.y, 1e-6);
-  let world = vec2f(
-    (in.ndc.x * 0.5 + 0.5) * uniforms.gridSize.x,
-    (in.ndc.y * domainAspect / max(uniforms.aspectRatio, 1e-6) * 0.5 + 0.5) *
-      uniforms.gridSize.y
-  );
+  let world = ndc_to_world(in.ndc, uniforms.viewScale, uniforms.viewOffset);
 
   if (world.y < 0.0) {
+    return concrete(world);
+  }
+
+  if (world.x > uniforms.rightX && world.y <= uniforms.wallTop) {
     return concrete(world);
   }
 

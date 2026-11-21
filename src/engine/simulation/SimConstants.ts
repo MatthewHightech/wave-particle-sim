@@ -6,7 +6,7 @@ import {
 } from './tankFloor';
 
 export const SIM_CONFIG = {
-  DOMAIN_WIDTH: 112,
+  DOMAIN_WIDTH: 148,
   DOMAIN_HEIGHT: 64,
   CELL_SIZE_METERS: 0.05,
   GRAVITY_MPS2: -9.8,
@@ -30,13 +30,13 @@ export const SIM_CONFIG = {
   PISTON_TIP_MAX_OFFSET: 16,
   PISTON_EDGE_MARGIN: 0.6,
   PISTON_HEIGHT_FACTOR: 0.52,
-  DEFAULT_PARTICLE_SPACING: 0.32,
-  DEFAULT_WAVE_AMPLITUDE: 5.0,
-  DEFAULT_WAVE_PERIOD: 1 / 0.85,
+  DEFAULT_PARTICLE_SPACING: 0.387,
+  DEFAULT_WAVE_AMPLITUDE: 12,
+  DEFAULT_WAVE_PERIOD: 1.75,
   MIN_PARTICLE_SPACING: 0.26,
   MAX_PARTICLE_SPACING: 0.5,
   MIN_WAVE_AMPLITUDE: 0.5,
-  MAX_WAVE_AMPLITUDE: 8,
+  MAX_WAVE_AMPLITUDE: 20,
   MIN_WAVE_PERIOD: 0.4,
   MAX_WAVE_PERIOD: 4,
   FILL_FRACTION: 0.55,
@@ -118,6 +118,13 @@ export function pistonHeightRange(boundary: number): { yMin: number; yMax: numbe
     yMin + SIM_CONFIG.DOMAIN_HEIGHT * SIM_CONFIG.PISTON_HEIGHT_FACTOR
   );
   return { yMin, yMax };
+}
+
+export function pistonSealBottomY(
+  boundary: number,
+  particleRadius: number
+): number {
+  return floorBaseY(boundary) - particleRadius;
 }
 
 export function particleDomain(amplitude: number, boundary: number) {

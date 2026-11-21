@@ -1,5 +1,9 @@
 import particleShaderCode from '../shaders/particle.wgsl?raw';
 import { SIM_CONFIG } from '../simulation/SimConstants';
+import {
+  computeViewTransform,
+  viewProjectionWgsl,
+} from '../simulation/viewProjection';
 
 export class ParticleRenderer {
   private device: GPUDevice;
@@ -23,13 +27,13 @@ export class ParticleRenderer {
 
     this.uniformBuffer = device.createBuffer({
       label: 'Render Uniform Buffer',
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     const shaderModule = device.createShaderModule({
       label: 'Particle Render Shader',
-      code: particleShaderCode,
+      code: `${viewProjectionWgsl()}\n${particleShaderCode}`,
     });
 
     this.pipeline = device.createRenderPipeline({
@@ -76,7 +80,12 @@ export class ParticleRenderer {
     });
   }
 
-  public render(renderPass: GPURenderPassEncoder, width: number, height: number): void {
+  public render(
+    renderPass: GPURenderPassEncoder,
+    cssWidth: number,
+    cssHeight: number
+  ): void {
+    const view = computeViewTransform(cssWidth, cssHeight);
     this.device.queue.writeBuffer(
       this.uniformBuffer,
       0,
@@ -84,7 +93,11 @@ export class ParticleRenderer {
         SIM_CONFIG.DOMAIN_WIDTH,
         SIM_CONFIG.DOMAIN_HEIGHT,
         this.particleRadius,
-        width / height,
+        0,
+        view.scaleX,
+        view.scaleY,
+        view.offsetX,
+        view.offsetY,
       ])
     );
 

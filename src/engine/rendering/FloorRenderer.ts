@@ -1,11 +1,15 @@
 import floorShaderCode from '../shaders/tankFloor.wgsl?raw';
-import { SIM_CONFIG } from '../simulation/SimConstants';
+import { pistonHeightRange, SIM_CONFIG } from '../simulation/SimConstants';
 import {
   clampFloorShape,
   floorBaseY,
   floorMaxX,
   type FloorShape,
 } from '../simulation/tankFloor';
+import {
+  computeViewTransform,
+  viewProjectionWgsl,
+} from '../simulation/viewProjection';
 
 export class FloorRenderer {
   private device: GPUDevice;
@@ -20,13 +24,13 @@ export class FloorRenderer {
 
     this.uniformBuffer = device.createBuffer({
       label: 'Floor Uniform Buffer',
-      size: 48,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
     const shaderModule = device.createShaderModule({
       label: 'Floor Shader',
-      code: floorShaderCode,
+      code: `${viewProjectionWgsl()}\n${floorShaderCode}`,
     });
 
     this.pipeline = device.createRenderPipeline({
@@ -55,24 +59,30 @@ export class FloorRenderer {
 
   public render(
     renderPass: GPURenderPassEncoder,
-    width: number,
-    height: number,
+    cssWidth: number,
+    cssHeight: number,
     floorShape: FloorShape
   ): void {
     const shape = clampFloorShape(floorShape, this.boundary);
+    const view = computeViewTransform(cssWidth, cssHeight);
+    const wallTop = pistonHeightRange(this.boundary).yMax;
     this.device.queue.writeBuffer(
       this.uniformBuffer,
       0,
       new Float32Array([
         SIM_CONFIG.DOMAIN_WIDTH,
         SIM_CONFIG.DOMAIN_HEIGHT,
-        width / height,
+        view.scaleX,
+        view.scaleY,
+        view.offsetX,
+        view.offsetY,
         floorBaseY(this.boundary),
         shape.pivotX,
         shape.midX,
         shape.midY,
         floorMaxX(this.boundary),
         shape.rightY,
+        wallTop,
         0,
         0,
         0,

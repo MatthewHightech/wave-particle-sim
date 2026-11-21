@@ -1,7 +1,9 @@
 struct SimUniforms {
   gridSize: vec2f,
   particleRadius: f32,
-  aspectRatio: f32,
+  _pad0: f32,
+  viewScale: vec2f,
+  viewOffset: vec2f,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: SimUniforms;
@@ -33,10 +35,7 @@ fn vs_main(
   let radius = uniforms.particleRadius * (1.0 + 0.32 * foam);
   let particlePos = positions[instanceIndex];
   let worldPos = particlePos + localPos * radius;
-
-  let domainAspect = uniforms.gridSize.x / max(uniforms.gridSize.y, 1e-6);
-  var ndc = (worldPos / uniforms.gridSize) * 2.0 - 1.0;
-  ndc.y *= uniforms.aspectRatio / domainAspect;
+  let ndc = world_to_ndc(worldPos, uniforms.viewScale, uniforms.viewOffset);
 
   var out: VertexOutput;
   out.clipPos = vec4f(ndc, 0.0, 1.0);
