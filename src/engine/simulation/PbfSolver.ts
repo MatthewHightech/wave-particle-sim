@@ -8,6 +8,8 @@ import computeLambdaCode from '../shaders/pbfComputeLambda.wgsl?raw';
 import computeDeltaCode from '../shaders/pbfComputeDelta.wgsl?raw';
 import applyDeltaCode from '../shaders/pbfApplyDelta.wgsl?raw';
 import finalizeCode from '../shaders/pbfFinalize.wgsl?raw';
+import resolveSolidsCode from '../shaders/pbfResolveSolids.wgsl?raw';
+import commitResolveCode from '../shaders/pbfCommitResolve.wgsl?raw';
 import {
   leftWallBase,
   leftWallState,
@@ -64,6 +66,8 @@ export class PbfSolver {
   private deltaPipeline: GPUComputePipeline;
   private applyDeltaPipeline: GPUComputePipeline;
   private finalizePipeline: GPUComputePipeline;
+  private resolveSolidsPipeline: GPUComputePipeline;
+  private commitResolvePipeline: GPUComputePipeline;
 
   private clearHashBindGroup: GPUBindGroup;
   private countHashBindGroup: GPUBindGroup;
@@ -74,6 +78,8 @@ export class PbfSolver {
   private deltaBindGroup: GPUBindGroup;
   private applyDeltaBindGroup: GPUBindGroup;
   private finalizeBindGroup: GPUBindGroup;
+  private resolveSolidsBindGroup: GPUBindGroup;
+  private commitResolveBindGroup: GPUBindGroup;
 
   private header: string;
 
@@ -183,6 +189,14 @@ export class PbfSolver {
     this.deltaPipeline = this.makePipeline('PbfDelta', computeDeltaCode);
     this.applyDeltaPipeline = this.makePipeline('PbfApplyDelta', applyDeltaCode);
     this.finalizePipeline = this.makePipeline('PbfFinalize', finalizeCode);
+    this.resolveSolidsPipeline = this.makePipeline(
+      'PbfResolveSolids',
+      resolveSolidsCode
+    );
+    this.commitResolvePipeline = this.makePipeline(
+      'PbfCommitResolve',
+      commitResolveCode
+    );
 
     this.clearHashBindGroup = device.createBindGroup({
       layout: this.clearHashPipeline.getBindGroupLayout(0),
@@ -275,6 +289,26 @@ export class PbfSolver {
         { binding: 8, resource: { buffer: this.foamBuffer } },
       ],
     });
+
+    this.resolveSolidsBindGroup = device.createBindGroup({
+      layout: this.resolveSolidsPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: posBuffer } },
+        { binding: 2, resource: { buffer: this.velBuffer } },
+        { binding: 3, resource: { buffer: this.predictedBuffer } },
+      ],
+    });
+
+    this.commitResolveBindGroup = device.createBindGroup({
+      layout: this.commitResolvePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: posBuffer } },
+        { binding: 2, resource: { buffer: this.velBuffer } },
+        { binding: 3, resource: { buffer: this.predictedBuffer } },
+      ],
+    });
   }
 
   public setWaveParams(wave: WaveParams): void {
@@ -298,7 +332,7 @@ export class PbfSolver {
     return { ...this.pistonTip };
   }
 
-  public setPistonTip(tip: PistonTip): void {
+  public setPistonTip(tip: PistonTip, clearVelocities = false): void {
     this.pistonTip = clampPistonTip(tip, this.derived.boundary);
     const wall = leftWallState(
       this.simTime,
@@ -323,14 +357,18 @@ export class PbfSolver {
       0,
       this.boundary.velocities
     );
-    this.writeUniforms(this.simTime);
+    if (clearVelocities) {
+      this.resolveSolidEdit(true);
+    } else {
+      this.writeUniforms(this.simTime);
+    }
   }
 
   public getFloorShape(): FloorShape {
     return { ...this.floorShape };
   }
 
-  public setFloorShape(floorShape: FloorShape): void {
+  public setFloorShape(floorShape: FloorShape, clearVelocities = false): void {
     this.floorShape = clampFloorShape(floorShape, this.derived.boundary);
     writeFloorBoundary(
       this.boundary,
@@ -348,7 +386,11 @@ export class PbfSolver {
       0,
       this.boundary.velocities
     );
-    this.writeUniforms(this.simTime);
+    if (clearVelocities) {
+      this.resolveSolidEdit(true);
+    } else {
+      this.writeUniforms(this.simTime);
+    }
   }
 
   public resetTime(): void {
@@ -399,7 +441,7 @@ export class PbfSolver {
     );
   }
 
-  private writeUniforms(timeSeconds: number): void {
+  private writeUniforms(timeSeconds: number, dt = SIM_CONFIG.DT): void {
     const wall = leftWallState(
       timeSeconds,
       this.wave.amplitude,
@@ -409,7 +451,7 @@ export class PbfSolver {
     const data = new ArrayBuffer(64);
     const f32 = new Float32Array(data);
     const u32 = new Uint32Array(data);
-    f32[0] = SIM_CONFIG.DT;
+    f32[0] = dt;
     f32[1] = SIM_CONFIG.GRAVITY;
     u32[2] = this.numParticles;
     u32[3] = this.numTotal;
@@ -429,6 +471,46 @@ export class PbfSolver {
     f32[14] = this.pistonTip.y;
     f32[15] = this.pistonTip.offsetX;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+  }
+
+  public resolveSolidEdit(clearVelocities: boolean): void {
+    this.writeUniforms(this.simTime, clearVelocities ? 0 : SIM_CONFIG.DT);
+
+    const particleGroups = Math.ceil(this.numParticles / 64);
+    const commandEncoder = this.device.createCommandEncoder();
+    const pass = commandEncoder.beginComputePass();
+
+    for (let round = 0; round < 2; round++) {
+      pass.setPipeline(this.resolveSolidsPipeline);
+      pass.setBindGroup(0, this.resolveSolidsBindGroup);
+      pass.dispatchWorkgroups(particleGroups);
+
+      this.dispatchHash(pass);
+
+      for (let iter = 0; iter < SIM_CONFIG.SOLVER_ITERATIONS; iter++) {
+        pass.setPipeline(this.lambdaPipeline);
+        pass.setBindGroup(0, this.lambdaBindGroup);
+        pass.dispatchWorkgroups(particleGroups);
+
+        pass.setPipeline(this.deltaPipeline);
+        pass.setBindGroup(0, this.deltaBindGroup);
+        pass.dispatchWorkgroups(particleGroups);
+
+        pass.setPipeline(this.applyDeltaPipeline);
+        pass.setBindGroup(0, this.applyDeltaBindGroup);
+        pass.dispatchWorkgroups(particleGroups);
+
+        this.dispatchHash(pass);
+      }
+    }
+
+    pass.setPipeline(this.commitResolvePipeline);
+    pass.setBindGroup(0, this.commitResolveBindGroup);
+    pass.dispatchWorkgroups(particleGroups);
+    pass.end();
+
+    this.device.queue.submit([commandEncoder.finish()]);
+    this.writeUniforms(this.simTime);
   }
 
   private dispatchHash(pass: GPUComputePassEncoder): void {

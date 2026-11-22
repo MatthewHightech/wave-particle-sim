@@ -106,7 +106,7 @@ export class Engine {
   public setFloorShape(floorShape: FloorShape): void {
     const boundary = deriveParticles(this.settings.particleSpacing).boundary;
     this.settings.floorShape = clampFloorShape(floorShape, boundary);
-    this.solver?.setFloorShape(this.settings.floorShape);
+    this.solver?.setFloorShape(this.settings.floorShape, this.paused);
   }
 
   public getPistonTip(): PistonTip {
@@ -116,7 +116,7 @@ export class Engine {
   public setPistonTip(tip: PistonTip): void {
     const boundary = deriveParticles(this.settings.particleSpacing).boundary;
     this.settings.pistonTip = clampPistonTip(tip, boundary);
-    this.solver?.setPistonTip(this.settings.pistonTip);
+    this.solver?.setPistonTip(this.settings.pistonTip, this.paused);
   }
 
   public getLeftWallX(): number {
