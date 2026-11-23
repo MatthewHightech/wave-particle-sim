@@ -91,12 +91,31 @@ export function leftWallState(
   timeSeconds: number,
   amplitude: number,
   periodSeconds: number,
-  wallBase: number
+  wallBase: number,
+  phaseOffset = 0
 ) {
   const omega = (2 * Math.PI) / Math.max(periodSeconds, 0.05);
-  const phase = omega * timeSeconds;
+  const phase = omega * timeSeconds + phaseOffset;
   return {
     x: wallBase + amplitude * Math.sin(phase),
     vx: amplitude * omega * Math.cos(phase),
   };
+}
+
+export function wavePhaseForWallX(
+  wallX: number,
+  wallVx: number,
+  amplitude: number,
+  periodSeconds: number,
+  wallBase: number,
+  timeSeconds: number
+): number {
+  const amp = Math.max(amplitude, 1e-6);
+  const omega = (2 * Math.PI) / Math.max(periodSeconds, 0.05);
+  const displacement = Math.min(amp, Math.max(-amp, wallX - wallBase));
+  let theta = Math.asin(displacement / amp);
+  if (wallVx < 0) {
+    theta = Math.PI - theta;
+  }
+  return theta - omega * timeSeconds;
 }

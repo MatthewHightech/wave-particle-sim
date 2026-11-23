@@ -14,6 +14,7 @@ import commitResolveCode from '../shaders/pbfCommitResolve.wgsl?raw';
 import {
   leftWallState,
   SIM_CONFIG,
+  wavePhaseForWallX,
   type ParticleDerived,
   type WaveParams,
 } from './SimConstants';
@@ -44,6 +45,7 @@ export class PbfSolver {
   private numHashCells: number;
   private derived: ParticleDerived;
   private wave: WaveParams;
+  private wavePhaseOffset = 0;
   private simTime = 0;
   private floorShape: FloorShape;
   private pistonTip: PistonTip;
@@ -274,6 +276,16 @@ export class PbfSolver {
   }
 
   public setWaveParams(wave: WaveParams): void {
+    const wallBase = leftWallBase(this.derived.boundary);
+    const before = this.currentWall();
+    this.wavePhaseOffset = wavePhaseForWallX(
+      before.x,
+      before.vx,
+      wave.amplitude,
+      wave.periodSeconds,
+      wallBase,
+      this.simTime
+    );
     this.wave = { ...wave };
   }
 
@@ -349,7 +361,8 @@ export class PbfSolver {
       timeSeconds,
       this.wave.amplitude,
       this.wave.periodSeconds,
-      leftWallBase(this.derived.boundary)
+      leftWallBase(this.derived.boundary),
+      this.wavePhaseOffset
     );
   }
 

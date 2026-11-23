@@ -77,6 +77,9 @@ export class Engine {
   }
 
   public play(): void {
+    if (this.paused) {
+      this.syncWaveParams();
+    }
     this.paused = false;
   }
 
@@ -114,12 +117,16 @@ export class Engine {
 
   public setWaveAmplitude(amplitude: number): void {
     this.settings.amplitude = amplitude;
-    this.syncWaveParams();
+    if (!this.paused) {
+      this.syncWaveParams();
+    }
   }
 
   public setWavePeriod(periodSeconds: number): void {
     this.settings.periodSeconds = periodSeconds;
-    this.syncWaveParams();
+    if (!this.paused) {
+      this.syncWaveParams();
+    }
   }
 
   public setParticleSpacing(spacing: number): void {
