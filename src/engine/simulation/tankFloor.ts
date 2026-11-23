@@ -1,4 +1,5 @@
-import { pistonMaxReachX, SIM_CONFIG } from './SimConstants';
+import { SIM_CONFIG } from './SimConstants';
+import { pistonMaxReachX } from './pistonGeometry';
 
 export const TANK_FLOOR = {
   MAX_RIGHT_Y_FACTOR: 0.48,

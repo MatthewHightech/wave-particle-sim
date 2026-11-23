@@ -1,13 +1,12 @@
 import { SIM_CONFIG, type ParticleDerived } from '../simulation/SimConstants';
+import { pistonHeightRange } from '../simulation/pistonGeometry';
 
 export function buildPbfHeader(derived: ParticleDerived): string {
   const maxX = SIM_CONFIG.DOMAIN_WIDTH - derived.boundary;
   const minY = derived.boundary;
   const maxY = SIM_CONFIG.DOMAIN_HEIGHT - derived.boundary;
-  const pistonYMin = derived.boundary;
-  const pistonYMax = Math.min(
-    SIM_CONFIG.DOMAIN_HEIGHT - derived.boundary * 0.35,
-    pistonYMin + SIM_CONFIG.DOMAIN_HEIGHT * SIM_CONFIG.PISTON_HEIGHT_FACTOR
+  const { yMin: pistonYMin, yMax: pistonYMax } = pistonHeightRange(
+    derived.boundary
   );
 
   return `

@@ -1,4 +1,5 @@
 import particleShaderCode from '../shaders/particle.wgsl?raw';
+import { createGpuBuffer } from '../core/gpuBuffers';
 import { SIM_CONFIG } from '../simulation/SimConstants';
 import {
   computeViewTransform,
@@ -25,11 +26,12 @@ export class ParticleRenderer {
     this.numParticles = numParticles;
     this.particleRadius = particleRadius;
 
-    this.uniformBuffer = device.createBuffer({
-      label: 'Render Uniform Buffer',
-      size: 32,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.uniformBuffer = createGpuBuffer(
+      device,
+      'Render Uniform Buffer',
+      32,
+      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    );
 
     const shaderModule = device.createShaderModule({
       label: 'Particle Render Shader',

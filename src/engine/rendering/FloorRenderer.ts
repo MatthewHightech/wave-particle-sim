@@ -1,5 +1,7 @@
 import floorShaderCode from '../shaders/tankFloor.wgsl?raw';
-import { pistonHeightRange, SIM_CONFIG } from '../simulation/SimConstants';
+import { createSimpleRenderPass } from '../core/gpuBuffers';
+import { SIM_CONFIG } from '../simulation/SimConstants';
+import { pistonHeightRange } from '../simulation/pistonGeometry';
 import {
   clampFloorShape,
   floorBaseY,
@@ -22,39 +24,16 @@ export class FloorRenderer {
     this.device = device;
     this.boundary = boundary;
 
-    this.uniformBuffer = device.createBuffer({
-      label: 'Floor Uniform Buffer',
-      size: 64,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    const shaderModule = device.createShaderModule({
-      label: 'Floor Shader',
-      code: `${viewProjectionWgsl()}\n${floorShaderCode}`,
-    });
-
-    this.pipeline = device.createRenderPipeline({
-      label: 'Floor Pipeline',
-      layout: 'auto',
-      vertex: {
-        module: shaderModule,
-        entryPoint: 'vs_main',
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: 'fs_main',
-        targets: [{ format }],
-      },
-      primitive: {
-        topology: 'triangle-list',
-      },
-    });
-
-    this.bindGroup = device.createBindGroup({
-      label: 'Floor BindGroup',
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
-    });
+    const pass = createSimpleRenderPass(
+      device,
+      'Floor',
+      format,
+      `${viewProjectionWgsl()}\n${floorShaderCode}`,
+      64
+    );
+    this.pipeline = pass.pipeline;
+    this.uniformBuffer = pass.uniformBuffer;
+    this.bindGroup = pass.bindGroup;
   }
 
   public render(

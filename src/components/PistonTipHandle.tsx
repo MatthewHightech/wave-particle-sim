@@ -10,7 +10,10 @@ import {
   clampPistonTip,
   type PistonTip,
 } from '../engine/simulation/pistonGeometry';
-import { cssToWorld, worldToCss } from '../engine/simulation/worldSpace';
+import { worldToCss } from '../engine/simulation/viewProjection';
+import { useCanvasCssSize } from '../hooks/useCanvasCssSize';
+import { useWindowPointerDrag } from '../hooks/useWindowPointerDrag';
+import { OverlayDragHandle } from './OverlayDragHandle';
 
 type PistonTipHandleProps = {
   canvas: HTMLCanvasElement | null;
@@ -32,7 +35,7 @@ export function PistonTipHandle({
   const getWallXRef = useRef(getWallX);
   tipRef.current = tip;
   getWallXRef.current = getWallX;
-  const [layout, setLayout] = useState({ width: 0, height: 0 });
+  const layout = useCanvasCssSize(canvas);
   const [dragging, setDragging] = useState(false);
   const applyDrag = useEffectEvent((worldX: number, worldY: number) => {
     const boundary = deriveParticles(particleSpacing).boundary;
@@ -46,18 +49,6 @@ export function PistonTipHandle({
       )
     );
   });
-
-  useEffect(() => {
-    if (!canvas) return;
-    const update = () => {
-      const rect = canvas.getBoundingClientRect();
-      setLayout({ width: rect.width, height: rect.height });
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(canvas);
-    return () => observer.disconnect();
-  }, [canvas]);
 
   useEffect(() => {
     if (!canvas || layout.width <= 0 || layout.height <= 0) return;
@@ -83,43 +74,26 @@ export function PistonTipHandle({
     return () => cancelAnimationFrame(frame);
   }, [canvas, layout, particleSpacing]);
 
-  useEffect(() => {
-    if (!dragging || !canvas) return;
+  const onDragEnd = useEffectEvent(() => setDragging(false));
 
-    const onMove = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const world = cssToWorld(
-        event.clientX - rect.left,
-        event.clientY - rect.top,
-        rect.width,
-        rect.height
-      );
-      applyDrag(world.x, world.y);
-    };
-
-    const onUp = () => setDragging(false);
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-  }, [dragging, canvas]);
+  useWindowPointerDrag({
+    enabled: dragging,
+    canvas,
+    onMove: applyDrag,
+    onEnd: onDragEnd,
+  });
 
   if (!canvas || layout.width <= 0 || layout.height <= 0) {
     return null;
   }
 
   return (
-    <button
-      ref={buttonRef}
-      type="button"
-      aria-label="Drag to flex the piston tip"
-      className={`pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-stone-950 bg-emerald-400 shadow-md ${
-        dragging ? 'scale-125 cursor-grabbing' : 'cursor-move hover:scale-110'
-      }`}
+    <OverlayDragHandle
+      buttonRef={buttonRef}
+      ariaLabel="Drag to flex the piston tip"
+      colorClass="bg-emerald-400"
+      idleCursorClass="cursor-move"
+      active={dragging}
       onPointerDown={(event: ReactPointerEvent<HTMLButtonElement>) => {
         event.preventDefault();
         setDragging(true);

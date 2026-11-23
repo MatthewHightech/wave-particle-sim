@@ -1,16 +1,16 @@
 import {
   deriveParticles,
-  leftWallBase,
   leftWallState,
-  pistonHeightRange,
   SIM_CONFIG,
   type ParticleDerived,
 } from './SimConstants';
 import {
   clampPistonTip,
   defaultPistonTip,
+  leftWallBase,
   pistonFaceNormal,
   pistonFaceX,
+  pistonHeightRange,
   type PistonTip,
 } from './pistonGeometry';
 import {

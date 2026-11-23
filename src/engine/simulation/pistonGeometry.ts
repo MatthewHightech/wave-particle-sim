@@ -1,8 +1,4 @@
-import {
-  leftWallBase,
-  pistonHeightRange,
-  SIM_CONFIG,
-} from './SimConstants';
+import { SIM_CONFIG } from './SimConstants';
 
 export type PistonPoint = { x: number; y: number };
 
@@ -11,12 +7,45 @@ export type PistonTip = {
   y: number;
 };
 
-export function clampPistonTipY(tipY: number, boundary: number): number {
+export function leftWallBase(boundary: number): number {
+  return Math.max(
+    boundary,
+    SIM_CONFIG.MAX_WAVE_AMPLITUDE +
+      SIM_CONFIG.PISTON_BEAM_WIDTH +
+      SIM_CONFIG.PISTON_EDGE_MARGIN
+  );
+}
+
+export function pistonMaxWallX(boundary: number): number {
+  return leftWallBase(boundary) + SIM_CONFIG.MAX_WAVE_AMPLITUDE;
+}
+
+export function pistonMaxReachX(boundary: number): number {
+  return pistonMaxWallX(boundary) + SIM_CONFIG.PISTON_TIP_MAX_OFFSET;
+}
+
+export function pistonHeightRange(boundary: number): { yMin: number; yMax: number } {
+  const yMin = boundary;
+  const yMax = Math.min(
+    SIM_CONFIG.DOMAIN_HEIGHT - boundary * 0.35,
+    yMin + SIM_CONFIG.DOMAIN_HEIGHT * SIM_CONFIG.PISTON_HEIGHT_FACTOR
+  );
+  return { yMin, yMax };
+}
+
+export function pistonSealBottomY(
+  boundary: number,
+  particleRadius: number
+): number {
+  return boundary - particleRadius;
+}
+
+function clampPistonTipY(tipY: number, boundary: number): number {
   const { yMin, yMax } = pistonHeightRange(boundary);
   return Math.min(yMax, Math.max(yMin, tipY));
 }
 
-export function clampPistonTipOffsetX(offsetX: number): number {
+function clampPistonTipOffsetX(offsetX: number): number {
   return Math.min(
     SIM_CONFIG.PISTON_TIP_MAX_OFFSET,
     Math.max(SIM_CONFIG.PISTON_TIP_MIN_OFFSET, offsetX)
@@ -76,22 +105,4 @@ export function pistonFaceNormal(
     return { x: -normal.x, y: -normal.y };
   }
   return normal;
-}
-
-export function pistonVertices(
-  wallX: number,
-  tip: PistonTip,
-  boundary: number
-): { topLeft: PistonPoint; bottomLeft: PistonPoint; tip: PistonPoint } {
-  const { yMin, yMax } = pistonHeightRange(boundary);
-  const clamped = clampPistonTip(tip, boundary);
-  return {
-    topLeft: { x: wallX, y: yMax },
-    bottomLeft: { x: wallX, y: yMin },
-    tip: { x: wallX + clamped.offsetX, y: clamped.y },
-  };
-}
-
-export function pistonRestWallX(boundary: number): number {
-  return leftWallBase(boundary);
 }

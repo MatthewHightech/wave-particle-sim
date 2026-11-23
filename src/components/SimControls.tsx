@@ -1,8 +1,8 @@
+import { SIM_CONFIG } from '../engine/simulation/SimConstants';
 import {
   estimateParticleCount,
-  SIM_CONFIG,
   spacingForTargetCount,
-} from '../engine/simulation/SimConstants';
+} from '../engine/simulation/fluidSpawn';
 
 type SimControlsProps = {
   running: boolean;
@@ -16,6 +16,30 @@ type SimControlsProps = {
   onPeriodChange: (value: number) => void;
   onParticleCountChange: (spacing: number) => void;
 };
+
+function ControlButton({
+  label,
+  tone,
+  onClick,
+}: {
+  label: string;
+  tone: 'primary' | 'muted';
+  onClick: () => void;
+}) {
+  const toneClass =
+    tone === 'primary'
+      ? 'bg-stone-100/15 text-stone-100 hover:bg-stone-100/30'
+      : 'bg-stone-100/10 text-stone-300 hover:bg-stone-100/25';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`cursor-pointer px-3 py-1.5 text-sm transition ${toneClass}`}
+    >
+      {label}
+    </button>
+  );
+}
 
 function ParamHint({ text }: { text: string }) {
   return (
@@ -104,20 +128,12 @@ export function SimControls({
   return (
     <aside className="pointer-events-auto absolute top-5 right-5 z-10 flex w-56 flex-col gap-6 bg-transparent">
       <div className="flex gap-3">
-        <button
-          type="button"
+        <ControlButton
+          tone="primary"
           onClick={running ? onPause : onPlay}
-          className="cursor-pointer bg-stone-100/15 px-3 py-1.5 text-sm text-stone-100 transition hover:bg-stone-100/30"
-        >
-          {running ? 'Pause' : 'Start'}
-        </button>
-        <button
-          type="button"
-          onClick={onReset}
-          className="cursor-pointer bg-stone-100/10 px-3 py-1.5 text-sm text-stone-300 transition hover:bg-stone-100/25"
-        >
-          Reset
-        </button>
+          label={running ? 'Pause' : 'Start'}
+        />
+        <ControlButton tone="muted" onClick={onReset} label="Reset" />
       </div>
 
       <div className="flex flex-col gap-5">

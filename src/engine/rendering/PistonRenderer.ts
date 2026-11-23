@@ -1,11 +1,10 @@
 import pistonShaderCode from '../shaders/piston.wgsl?raw';
-import {
-  pistonHeightRange,
-  pistonSealBottomY,
-  SIM_CONFIG,
-} from '../simulation/SimConstants';
+import { createSimpleRenderPass } from '../core/gpuBuffers';
+import { SIM_CONFIG } from '../simulation/SimConstants';
 import {
   clampPistonTip,
+  pistonHeightRange,
+  pistonSealBottomY,
   type PistonTip,
 } from '../simulation/pistonGeometry';
 import {
@@ -40,39 +39,16 @@ export class PistonRenderer {
     this.yMin = height.yMin;
     this.yMax = height.yMax;
 
-    this.uniformBuffer = device.createBuffer({
-      label: 'Piston Uniform Buffer',
-      size: 64,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    const shaderModule = device.createShaderModule({
-      label: 'Piston Shader',
-      code: `${viewProjectionWgsl()}\n${pistonShaderCode}`,
-    });
-
-    this.pipeline = device.createRenderPipeline({
-      label: 'Piston Pipeline',
-      layout: 'auto',
-      vertex: {
-        module: shaderModule,
-        entryPoint: 'vs_main',
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: 'fs_main',
-        targets: [{ format }],
-      },
-      primitive: {
-        topology: 'triangle-list',
-      },
-    });
-
-    this.bindGroup = device.createBindGroup({
-      label: 'Piston BindGroup',
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
-    });
+    const pass = createSimpleRenderPass(
+      device,
+      'Piston',
+      format,
+      `${viewProjectionWgsl()}\n${pistonShaderCode}`,
+      64
+    );
+    this.pipeline = pass.pipeline;
+    this.uniformBuffer = pass.uniformBuffer;
+    this.bindGroup = pass.bindGroup;
   }
 
   private writeUniforms(

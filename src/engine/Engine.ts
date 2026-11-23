@@ -1,15 +1,15 @@
 import { WebGPUContext } from './core/WebGPUContext';
+import { createGpuBuffer } from './core/gpuBuffers';
 import { FloorRenderer } from './rendering/FloorRenderer';
 import { ParticleRenderer } from './rendering/ParticleRenderer';
 import { PistonRenderer } from './rendering/PistonRenderer';
 import { PbfSolver } from './simulation/PbfSolver';
 import {
   deriveParticles,
-  estimateParticleCount,
   SIM_CONFIG,
   type WaveParams,
 } from './simulation/SimConstants';
-import { spawnFluid } from './simulation/spawnFluid';
+import { spawnFluid } from './simulation/fluidSpawn';
 import {
   clampPistonTip,
   defaultPistonTip,
@@ -21,11 +21,17 @@ import {
   type FloorShape,
 } from './simulation/tankFloor';
 
-export type EngineSettings = WaveParams & {
+type EngineSettings = WaveParams & {
   particleSpacing: number;
   floorShape: FloorShape;
   pistonTip: PistonTip;
 };
+
+function defaultBoundary(
+  spacing = SIM_CONFIG.DEFAULT_PARTICLE_SPACING
+): number {
+  return deriveParticles(spacing).boundary;
+}
 
 export class Engine {
   private gpu: WebGPUContext | null = null;
@@ -37,17 +43,16 @@ export class Engine {
   private animationFrameId: number | null = null;
   private isDestroyed = false;
   private paused = false;
-  private settings: EngineSettings = {
-    amplitude: SIM_CONFIG.DEFAULT_WAVE_AMPLITUDE,
-    periodSeconds: SIM_CONFIG.DEFAULT_WAVE_PERIOD,
-    particleSpacing: SIM_CONFIG.DEFAULT_PARTICLE_SPACING,
-    floorShape: defaultFloorShape(
-      deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
-    ),
-    pistonTip: defaultPistonTip(
-      deriveParticles(SIM_CONFIG.DEFAULT_PARTICLE_SPACING).boundary
-    ),
-  };
+  private settings: EngineSettings = (() => {
+    const boundary = defaultBoundary();
+    return {
+      amplitude: SIM_CONFIG.DEFAULT_WAVE_AMPLITUDE,
+      periodSeconds: SIM_CONFIG.DEFAULT_WAVE_PERIOD,
+      particleSpacing: SIM_CONFIG.DEFAULT_PARTICLE_SPACING,
+      floorShape: defaultFloorShape(boundary),
+      pistonTip: defaultPistonTip(boundary),
+    };
+  })();
 
   public async init(
     canvas: HTMLCanvasElement,
@@ -83,22 +88,6 @@ export class Engine {
     return this.paused;
   }
 
-  public getSettings(): EngineSettings {
-    return {
-      ...this.settings,
-      floorShape: { ...this.settings.floorShape },
-      pistonTip: { ...this.settings.pistonTip },
-    };
-  }
-
-  public getParticleCount(): number {
-    return estimateParticleCount(
-      this.settings.particleSpacing,
-      this.settings.amplitude,
-      this.settings.floorShape
-    );
-  }
-
   public getFloorShape(): FloorShape {
     return { ...this.settings.floorShape };
   }
@@ -125,18 +114,12 @@ export class Engine {
 
   public setWaveAmplitude(amplitude: number): void {
     this.settings.amplitude = amplitude;
-    this.solver?.setWaveParams({
-      amplitude: this.settings.amplitude,
-      periodSeconds: this.settings.periodSeconds,
-    });
+    this.syncWaveParams();
   }
 
   public setWavePeriod(periodSeconds: number): void {
     this.settings.periodSeconds = periodSeconds;
-    this.solver?.setWaveParams({
-      amplitude: this.settings.amplitude,
-      periodSeconds: this.settings.periodSeconds,
-    });
+    this.syncWaveParams();
   }
 
   public setParticleSpacing(spacing: number): void {
@@ -148,6 +131,13 @@ export class Engine {
     if (!this.gpu) return;
     this.teardownSimulation();
     this.bootstrapSimulation();
+  }
+
+  private syncWaveParams(): void {
+    this.solver?.setWaveParams({
+      amplitude: this.settings.amplitude,
+      periodSeconds: this.settings.periodSeconds,
+    });
   }
 
   private bootstrapSimulation(): void {
@@ -169,12 +159,13 @@ export class Engine {
     );
     const numParticles = positions.length / 2;
 
-    this.posBuffer = device.createBuffer({
-      label: 'Particle Positions',
-      size: positions.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.posBuffer, 0, positions);
+    this.posBuffer = createGpuBuffer(
+      device,
+      'Particle Positions',
+      positions.byteLength,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      positions
+    );
 
     this.solver = new PbfSolver(
       device,

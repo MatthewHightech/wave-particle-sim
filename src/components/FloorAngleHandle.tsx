@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useEffectEvent,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -14,7 +13,10 @@ import {
   floorMaxX,
   type FloorShape,
 } from '../engine/simulation/tankFloor';
-import { cssToWorld, worldToCss } from '../engine/simulation/worldSpace';
+import { worldToCss } from '../engine/simulation/viewProjection';
+import { useCanvasCssSize } from '../hooks/useCanvasCssSize';
+import { useWindowPointerDrag } from '../hooks/useWindowPointerDrag';
+import { OverlayDragHandle } from './OverlayDragHandle';
 
 type DragTarget = 'pivot' | 'mid' | 'right' | null;
 
@@ -31,7 +33,7 @@ export function FloorAngleHandle({
   floorShape,
   onFloorShapeChange,
 }: FloorAngleHandleProps) {
-  const [layout, setLayout] = useState({ width: 0, height: 0 });
+  const layout = useCanvasCssSize(canvas);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
   const applyDrag = useEffectEvent(
     (target: Exclude<DragTarget, null>, worldX: number, worldY: number) => {
@@ -81,45 +83,19 @@ export function FloorAngleHandle({
     }
   );
 
-  useEffect(() => {
-    if (!canvas) return;
+  const onDragMove = useEffectEvent((worldX: number, worldY: number) => {
+    if (!dragTarget) return;
+    applyDrag(dragTarget, worldX, worldY);
+  });
 
-    const update = () => {
-      const rect = canvas.getBoundingClientRect();
-      setLayout({ width: rect.width, height: rect.height });
-    };
+  const onDragEnd = useEffectEvent(() => setDragTarget(null));
 
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(canvas);
-    return () => observer.disconnect();
-  }, [canvas]);
-
-  useEffect(() => {
-    if (!dragTarget || !canvas) return;
-
-    const onMove = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const world = cssToWorld(
-        event.clientX - rect.left,
-        event.clientY - rect.top,
-        rect.width,
-        rect.height
-      );
-      applyDrag(dragTarget, world.x, world.y);
-    };
-
-    const onUp = () => setDragTarget(null);
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-  }, [dragTarget, canvas]);
+  useWindowPointerDrag({
+    enabled: dragTarget !== null,
+    canvas,
+    onMove: onDragMove,
+    onEnd: onDragEnd,
+  });
 
   if (!canvas || layout.width <= 0 || layout.height <= 0) {
     return null;
@@ -152,38 +128,30 @@ export function FloorAngleHandle({
         />
       </svg>
 
-      <button
-        type="button"
-        aria-label="Drag to move the floor hinge along the tank bottom"
-        className={`pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-stone-950 bg-stone-300 shadow-md transition ${
-          dragTarget === 'pivot'
-            ? 'scale-125 cursor-grabbing'
-            : 'cursor-ew-resize hover:scale-110'
-        }`}
+      <OverlayDragHandle
+        ariaLabel="Drag to move the floor hinge along the tank bottom"
+        colorClass="bg-stone-300"
+        idleCursorClass="cursor-ew-resize"
+        active={dragTarget === 'pivot'}
+        transition
         style={{ left: pivot.x, top: pivot.y }}
         onPointerDown={startDrag('pivot')}
       />
-
-      <button
-        type="button"
-        aria-label="Drag to reshape the tank floor"
-        className={`pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-stone-950 bg-sky-400 shadow-md transition ${
-          dragTarget === 'mid'
-            ? 'scale-125 cursor-grabbing'
-            : 'cursor-grab hover:scale-110'
-        }`}
+      <OverlayDragHandle
+        ariaLabel="Drag to reshape the tank floor"
+        colorClass="bg-sky-400"
+        idleCursorClass="cursor-grab"
+        active={dragTarget === 'mid'}
+        transition
         style={{ left: midScreen.x, top: midScreen.y }}
         onPointerDown={startDrag('mid')}
       />
-
-      <button
-        type="button"
-        aria-label="Drag to angle the tank floor"
-        className={`pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-stone-950 bg-amber-400 shadow-md transition ${
-          dragTarget === 'right'
-            ? 'scale-125 cursor-grabbing'
-            : 'cursor-grab hover:scale-110'
-        }`}
+      <OverlayDragHandle
+        ariaLabel="Drag to angle the tank floor"
+        colorClass="bg-amber-400"
+        idleCursorClass="cursor-grab"
+        active={dragTarget === 'right'}
+        transition
         style={{ left: corner.x, top: corner.y }}
         onPointerDown={startDrag('right')}
       />

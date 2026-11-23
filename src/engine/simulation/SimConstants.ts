@@ -1,10 +1,3 @@
-import {
-  defaultFloorShape,
-  floorBaseY,
-  floorHeightAt,
-  type FloorShape,
-} from './tankFloor';
-
 export const SIM_CONFIG = {
   DOMAIN_WIDTH: 148,
   DOMAIN_HEIGHT: 64,
@@ -92,81 +85,6 @@ export function deriveParticles(spacing: number): ParticleDerived {
     hashHeight: Math.ceil(SIM_CONFIG.DOMAIN_HEIGHT / h),
     maxDelta: h * 0.15,
   };
-}
-
-export function leftWallBase(boundary: number): number {
-  return Math.max(
-    boundary,
-    SIM_CONFIG.MAX_WAVE_AMPLITUDE +
-      SIM_CONFIG.PISTON_BEAM_WIDTH +
-      SIM_CONFIG.PISTON_EDGE_MARGIN
-  );
-}
-
-export function pistonMaxWallX(boundary: number): number {
-  return leftWallBase(boundary) + SIM_CONFIG.MAX_WAVE_AMPLITUDE;
-}
-
-export function pistonMaxReachX(boundary: number): number {
-  return pistonMaxWallX(boundary) + SIM_CONFIG.PISTON_TIP_MAX_OFFSET;
-}
-
-export function pistonHeightRange(boundary: number): { yMin: number; yMax: number } {
-  const yMin = floorBaseY(boundary);
-  const yMax = Math.min(
-    SIM_CONFIG.DOMAIN_HEIGHT - boundary * 0.35,
-    yMin + SIM_CONFIG.DOMAIN_HEIGHT * SIM_CONFIG.PISTON_HEIGHT_FACTOR
-  );
-  return { yMin, yMax };
-}
-
-export function pistonSealBottomY(
-  boundary: number,
-  particleRadius: number
-): number {
-  return floorBaseY(boundary) - particleRadius;
-}
-
-export function particleDomain(amplitude: number, boundary: number) {
-  return {
-    minX: leftWallBase(boundary) + amplitude,
-    maxX: SIM_CONFIG.DOMAIN_WIDTH - boundary,
-    minY: boundary,
-    maxY: SIM_CONFIG.DOMAIN_HEIGHT - boundary,
-  };
-}
-
-export function estimateParticleCount(
-  spacing: number,
-  amplitude: number,
-  floorShape?: FloorShape
-): number {
-  const derived = deriveParticles(spacing);
-  const domain = particleDomain(amplitude, derived.boundary);
-  const surfaceY = domain.minY + (domain.maxY - domain.minY) * SIM_CONFIG.FILL_FRACTION;
-  const shape = floorShape ?? defaultFloorShape(derived.boundary);
-  let count = 0;
-  for (let x = domain.minX + spacing * 0.5; x < domain.maxX - spacing * 0.5; x += spacing) {
-    const minY = floorHeightAt(x, derived.boundary, shape);
-    for (let y = minY + spacing * 0.5; y < surfaceY; y += spacing) {
-      count += 1;
-    }
-  }
-  return count;
-}
-
-export function spacingForTargetCount(targetCount: number, amplitude: number): number {
-  let lo: number = SIM_CONFIG.MIN_PARTICLE_SPACING;
-  let hi: number = SIM_CONFIG.MAX_PARTICLE_SPACING;
-  for (let i = 0; i < 24; i++) {
-    const mid = (lo + hi) * 0.5;
-    if (estimateParticleCount(mid, amplitude) > targetCount) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-  }
-  return (lo + hi) * 0.5;
 }
 
 export function leftWallState(
