@@ -9,7 +9,7 @@ import {
   SIM_CONFIG,
   type WaveParams,
 } from './simulation/SimConstants';
-import { spawnFluid } from './simulation/fluidSpawn';
+import { defaultParticleSpacing, spawnFluid } from './simulation/fluidSpawn';
 import {
   clampPistonTip,
   defaultPistonTip,
@@ -28,7 +28,7 @@ type EngineSettings = WaveParams & {
 };
 
 function defaultBoundary(
-  spacing = SIM_CONFIG.DEFAULT_PARTICLE_SPACING
+  spacing = defaultParticleSpacing()
 ): number {
   return deriveParticles(spacing).boundary;
 }
@@ -48,7 +48,7 @@ export class Engine {
     return {
       amplitude: SIM_CONFIG.DEFAULT_WAVE_AMPLITUDE,
       periodSeconds: SIM_CONFIG.DEFAULT_WAVE_PERIOD,
-      particleSpacing: SIM_CONFIG.DEFAULT_PARTICLE_SPACING,
+      particleSpacing: defaultParticleSpacing(),
       floorShape: defaultFloorShape(boundary),
       pistonTip: defaultPistonTip(boundary),
     };

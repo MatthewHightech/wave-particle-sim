@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Engine } from '../engine/Engine';
 import { deriveParticles, SIM_CONFIG } from '../engine/simulation/SimConstants';
+import { defaultParticleSpacing } from '../engine/simulation/fluidSpawn';
 import {
   defaultPistonTip,
   type PistonTip,
@@ -10,9 +11,8 @@ import {
   type FloorShape,
 } from '../engine/simulation/tankFloor';
 
-const DEFAULT_BOUNDARY = deriveParticles(
-  SIM_CONFIG.DEFAULT_PARTICLE_SPACING
-).boundary;
+const DEFAULT_SPACING = defaultParticleSpacing();
+const DEFAULT_BOUNDARY = deriveParticles(DEFAULT_SPACING).boundary;
 
 export function useSimulationController() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -26,9 +26,7 @@ export function useSimulationController() {
   const [periodSeconds, setPeriodSeconds] = useState<number>(
     SIM_CONFIG.DEFAULT_WAVE_PERIOD
   );
-  const [particleSpacing, setParticleSpacing] = useState<number>(
-    SIM_CONFIG.DEFAULT_PARTICLE_SPACING
-  );
+  const [particleSpacing, setParticleSpacing] = useState<number>(DEFAULT_SPACING);
   const [floorShape, setFloorShape] = useState<FloorShape>(() =>
     defaultFloorShape(DEFAULT_BOUNDARY)
   );

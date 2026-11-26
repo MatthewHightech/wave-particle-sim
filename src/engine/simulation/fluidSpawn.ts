@@ -72,15 +72,26 @@ export function spacingForTargetCount(
   targetCount: number,
   amplitude: number
 ): number {
+  const clamped = Math.min(
+    SIM_CONFIG.MAX_PARTICLE_COUNT,
+    Math.max(SIM_CONFIG.MIN_PARTICLE_COUNT, targetCount)
+  );
   let lo: number = SIM_CONFIG.MIN_PARTICLE_SPACING;
   let hi: number = SIM_CONFIG.MAX_PARTICLE_SPACING;
   for (let i = 0; i < 24; i++) {
     const mid = (lo + hi) * 0.5;
-    if (estimateParticleCount(mid, amplitude) > targetCount) {
+    if (estimateParticleCount(mid, amplitude) >= clamped) {
       lo = mid;
     } else {
       hi = mid;
     }
   }
-  return (lo + hi) * 0.5;
+  return estimateParticleCount(hi, amplitude) >= clamped ? hi : lo;
+}
+
+export function defaultParticleSpacing(): number {
+  return spacingForTargetCount(
+    SIM_CONFIG.MIN_PARTICLE_COUNT,
+    SIM_CONFIG.DEFAULT_WAVE_AMPLITUDE
+  );
 }

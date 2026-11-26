@@ -116,14 +116,8 @@ export function SimControls({
   onParticleCountChange,
 }: SimControlsProps) {
   const particleCount = estimateParticleCount(particleSpacing, amplitude);
-  const minCount = estimateParticleCount(
-    SIM_CONFIG.MAX_PARTICLE_SPACING,
-    amplitude
-  );
-  const maxCount = estimateParticleCount(
-    SIM_CONFIG.MIN_PARTICLE_SPACING,
-    amplitude
-  );
+  const minCount = SIM_CONFIG.MIN_PARTICLE_COUNT;
+  const maxCount = SIM_CONFIG.MAX_PARTICLE_COUNT;
 
   return (
     <aside className="pointer-events-auto absolute top-5 right-5 z-10 flex w-56 flex-col gap-6 bg-transparent">
