@@ -20,6 +20,7 @@ import {
 } from './SimConstants';
 import {
   spawnBoundary,
+  updateLeftWallMotion,
   writeFloorBoundary,
   writeLeftWallBoundary,
   type BoundaryParticles,
@@ -52,6 +53,7 @@ export class PbfSolver {
   private boundary: BoundaryParticles;
 
   private predictedBuffer: GPUBuffer;
+  private sortedPredictedBuffer: GPUBuffer;
   private velBuffer: GPUBuffer;
   private foamBuffer: GPUBuffer;
   private lambdaBuffer: GPUBuffer;
@@ -61,6 +63,9 @@ export class PbfSolver {
   private cellParticleBuffer: GPUBuffer;
   private boundaryVelBuffer: GPUBuffer;
   private uniformBuffer: GPUBuffer;
+  private uniformData: ArrayBuffer;
+  private uniformF32: Float32Array;
+  private uniformU32: Uint32Array;
 
   private clearHashPipeline: GPUComputePipeline;
   private countHashPipeline: GPUComputePipeline;
@@ -111,6 +116,9 @@ export class PbfSolver {
     this.numTotal = numParticles + this.boundary.positions.length / 2;
     this.numHashCells = derived.hashWidth * derived.hashHeight;
     this.header = buildPbfHeader(derived);
+    this.uniformData = new ArrayBuffer(64);
+    this.uniformF32 = new Float32Array(this.uniformData);
+    this.uniformU32 = new Uint32Array(this.uniformData);
 
     const storage = GPUBufferUsage.STORAGE;
     const storageDst = storage | GPUBufferUsage.COPY_DST;
@@ -140,6 +148,12 @@ export class PbfSolver {
       numParticles * 8,
       this.boundary.positions
     );
+    this.sortedPredictedBuffer = createGpuBuffer(
+      device,
+      'PBF Sorted Predicted',
+      Math.max(this.numTotal, 1) * 8,
+      storage
+    );
     this.lambdaBuffer = createGpuBuffer(
       device,
       'PBF Lambda',
@@ -161,7 +175,7 @@ export class PbfSolver {
     this.cellStartBuffer = createGpuBuffer(
       device,
       'PBF Cell Starts',
-      this.numHashCells * 4,
+      (this.numHashCells + 1) * 4,
       storage
     );
     this.cellParticleBuffer = createGpuBuffer(
@@ -221,6 +235,7 @@ export class PbfSolver {
       this.cellCountBuffer,
       this.cellStartBuffer,
       this.cellParticleBuffer,
+      this.sortedPredictedBuffer,
     ]);
     this.integrateBindGroup = this.bindGroup(this.integratePipeline, [
       this.uniformBuffer,
@@ -231,18 +246,18 @@ export class PbfSolver {
     this.lambdaBindGroup = this.bindGroup(this.lambdaPipeline, [
       this.uniformBuffer,
       this.predictedBuffer,
-      this.cellCountBuffer,
       this.cellStartBuffer,
       this.cellParticleBuffer,
+      this.sortedPredictedBuffer,
       this.lambdaBuffer,
     ]);
     this.deltaBindGroup = this.bindGroup(this.deltaPipeline, [
       this.uniformBuffer,
       this.predictedBuffer,
       this.lambdaBuffer,
-      this.cellCountBuffer,
       this.cellStartBuffer,
       this.cellParticleBuffer,
+      this.sortedPredictedBuffer,
       this.deltaBuffer,
     ]);
     this.applyDeltaBindGroup = this.bindGroup(this.applyDeltaPipeline, [
@@ -255,9 +270,9 @@ export class PbfSolver {
       posBuffer,
       this.velBuffer,
       this.predictedBuffer,
-      this.cellCountBuffer,
       this.cellStartBuffer,
       this.cellParticleBuffer,
+      this.sortedPredictedBuffer,
       this.boundaryVelBuffer,
       this.foamBuffer,
     ]);
@@ -379,29 +394,35 @@ export class PbfSolver {
     );
   }
 
-  private syncBoundary(timeSeconds: number): void {
+  private uploadLeftWallGpu(): void {
+    const byteOffset = this.boundary.numStatic * 8;
+    const wallFloats = this.boundary.numLeftWall * 2;
+    this.device.queue.writeBuffer(
+      this.predictedBuffer,
+      this.numParticles * 8 + byteOffset,
+      this.boundary.positions,
+      this.boundary.numStatic * 2,
+      wallFloats
+    );
+    this.device.queue.writeBuffer(
+      this.boundaryVelBuffer,
+      byteOffset,
+      this.boundary.velocities,
+      this.boundary.numStatic * 2,
+      wallFloats
+    );
+  }
+
+  private syncLeftWall(timeSeconds: number): void {
     const wall = this.currentWall(timeSeconds);
-    writeFloorBoundary(
-      this.boundary,
-      this.derived.spacing,
-      this.derived.boundary,
-      this.floorShape
-    );
-    writeLeftWallBoundary(
-      this.boundary,
-      wall.x,
-      wall.vx,
-      this.pistonTip,
-      this.derived.boundary
-    );
-    this.uploadBoundaryGpu();
+    updateLeftWallMotion(this.boundary, wall.x, wall.vx);
+    this.uploadLeftWallGpu();
   }
 
   private writeUniforms(timeSeconds: number, dt = SIM_CONFIG.DT): void {
     const wall = this.currentWall(timeSeconds);
-    const data = new ArrayBuffer(64);
-    const f32 = new Float32Array(data);
-    const u32 = new Uint32Array(data);
+    const f32 = this.uniformF32;
+    const u32 = this.uniformU32;
     f32[0] = dt;
     f32[1] = SIM_CONFIG.GRAVITY;
     u32[2] = this.numParticles;
@@ -421,7 +442,7 @@ export class PbfSolver {
     f32[13] = Math.max(f32[12] + 8, peakSpeed * 1.45);
     f32[14] = this.pistonTip.y;
     f32[15] = this.pistonTip.offsetX;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData);
   }
 
   private dispatchConstraintIterations(
@@ -493,10 +514,12 @@ export class PbfSolver {
 
   public step(commandEncoder: GPUCommandEncoder): void {
     const particleGroups = Math.ceil(this.numParticles / 64);
+    const uniformTime =
+      this.simTime + (SIM_CONFIG.SUBSTEPS - 1) * SIM_CONFIG.DT;
+    this.syncLeftWall(uniformTime);
+    this.writeUniforms(uniformTime);
 
     for (let s = 0; s < SIM_CONFIG.SUBSTEPS; s++) {
-      this.syncBoundary(this.simTime);
-      this.writeUniforms(this.simTime);
       this.simTime += SIM_CONFIG.DT;
 
       const pass = commandEncoder.beginComputePass();
@@ -520,6 +543,7 @@ export class PbfSolver {
     this.velBuffer.destroy();
     this.foamBuffer.destroy();
     this.predictedBuffer.destroy();
+    this.sortedPredictedBuffer.destroy();
     this.lambdaBuffer.destroy();
     this.deltaBuffer.destroy();
     this.cellCountBuffer.destroy();

@@ -8,8 +8,8 @@ import {
   clampPistonTip,
   defaultPistonTip,
   leftWallBase,
-  pistonFaceNormal,
-  pistonFaceX,
+  pistonFaceNormalTrusted,
+  pistonFaceXTrusted,
   pistonHeightRange,
   type PistonTip,
 } from './pistonGeometry';
@@ -17,9 +17,9 @@ import {
   clampFloorShape,
   defaultFloorShape,
   floorBaseY,
-  floorHeightAt,
+  floorHeightAtTrusted,
   floorMaxX,
-  floorNormalAt,
+  floorNormalAtTrusted,
   type FloorShape,
 } from './tankFloor';
 export type BoundaryParticles = {
@@ -29,6 +29,8 @@ export type BoundaryParticles = {
   numLeftWall: number;
   leftWallOffsets: Float32Array;
   leftWallYs: Float32Array;
+  leftWallRelX: Float32Array;
+  leftWallPosY: Float32Array;
   floorStart: number;
   floorCount: number;
   floorXs: Float32Array;
@@ -120,6 +122,8 @@ export function spawnBoundary(
     numLeftWall,
     leftWallOffsets: new Float32Array(leftOffsets),
     leftWallYs: new Float32Array(leftYs),
+    leftWallRelX: new Float32Array(numLeftWall),
+    leftWallPosY: new Float32Array(numLeftWall),
     floorStart,
     floorCount,
     floorXs: new Float32Array(floorXs),
@@ -166,8 +170,8 @@ export function writeFloorBoundary(
     const x = floorXs[i];
     const layer = floorLayers[i];
     const inset = (0.5 + layer) * spacing;
-    const normal = floorNormalAt(x, particleBoundary, shape);
-    const surfaceY = floorHeightAt(x, particleBoundary, shape);
+    const normal = floorNormalAtTrusted(x, particleBoundary, shape);
+    const surfaceY = floorHeightAtTrusted(x, particleBoundary, shape);
     const idx = (floorStart + i) * 2;
     positions[idx] = x - normal.x * inset;
     positions[idx + 1] = surfaceY - normal.y * inset;
@@ -177,7 +181,7 @@ export function writeFloorBoundary(
 
   const baseY = floorBaseY(particleBoundary);
   const topY = SIM_CONFIG.DOMAIN_HEIGHT - particleBoundary;
-  const cornerY = floorHeightAt(maxX, particleBoundary, shape);
+  const cornerY = floorHeightAtTrusted(maxX, particleBoundary, shape);
   const wallSpan = Math.max(topY - baseY, 1e-6);
 
   for (let i = 0; i < rightWallCount; i++) {
@@ -202,16 +206,50 @@ export function writeLeftWallBoundary(
   particleBoundary: number
 ): void {
   const tip = clampPistonTip(pistonTip, particleBoundary);
-  const { numStatic, numLeftWall, leftWallOffsets, leftWallYs, positions, velocities } =
-    boundary;
+  const {
+    numStatic,
+    numLeftWall,
+    leftWallOffsets,
+    leftWallYs,
+    leftWallRelX,
+    leftWallPosY,
+    positions,
+    velocities,
+  } = boundary;
   for (let i = 0; i < numLeftWall; i++) {
     const y = leftWallYs[i];
     const inset = leftWallOffsets[i];
-    const faceX = pistonFaceX(y, leftWallX, tip, particleBoundary);
-    const normal = pistonFaceNormal(y, tip, particleBoundary);
+    const faceX = pistonFaceXTrusted(y, leftWallX, tip, particleBoundary);
+    const normal = pistonFaceNormalTrusted(y, tip, particleBoundary);
     const idx = (numStatic + i) * 2;
-    positions[idx] = faceX - normal.x * inset;
-    positions[idx + 1] = y - normal.y * inset;
+    const relX = faceX - leftWallX - normal.x * inset;
+    const posY = y - normal.y * inset;
+    leftWallRelX[i] = relX;
+    leftWallPosY[i] = posY;
+    positions[idx] = leftWallX + relX;
+    positions[idx + 1] = posY;
+    velocities[idx] = leftWallVx;
+    velocities[idx + 1] = 0;
+  }
+}
+
+export function updateLeftWallMotion(
+  boundary: BoundaryParticles,
+  leftWallX: number,
+  leftWallVx: number
+): void {
+  const {
+    numStatic,
+    numLeftWall,
+    leftWallRelX,
+    leftWallPosY,
+    positions,
+    velocities,
+  } = boundary;
+  for (let i = 0; i < numLeftWall; i++) {
+    const idx = (numStatic + i) * 2;
+    positions[idx] = leftWallX + leftWallRelX[i];
+    positions[idx + 1] = leftWallPosY[i];
     velocities[idx] = leftWallVx;
     velocities[idx + 1] = 0;
   }

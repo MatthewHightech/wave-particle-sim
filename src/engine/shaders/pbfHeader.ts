@@ -8,20 +8,29 @@ export function buildPbfHeader(derived: ParticleDerived): string {
   const { yMin: pistonYMin, yMax: pistonYMax } = pistonHeightRange(
     derived.boundary
   );
+  const h = derived.h;
+  const h2 = h * h;
+  const poly6Coef = 4 / (Math.PI * h ** 8);
+  const spikyCoef = -30 / (Math.PI * h ** 5);
+  const tensileR2 = SIM_CONFIG.TENSILE_DQ * SIM_CONFIG.TENSILE_DQ * h2;
+  const tensileA = h2 - tensileR2;
+  const tensileWdq =
+    tensileR2 >= h2 ? 0 : poly6Coef * tensileA * tensileA * tensileA;
+  const numHashCells = derived.hashWidth * derived.hashHeight;
 
   return `
 const DOMAIN_WIDTH: f32 = ${SIM_CONFIG.DOMAIN_WIDTH}.0;
 const DOMAIN_HEIGHT: f32 = ${SIM_CONFIG.DOMAIN_HEIGHT}.0;
-const H: f32 = ${derived.h};
-const H2: f32 = ${derived.h * derived.h};
+const H: f32 = ${h};
+const H2: f32 = ${h2};
 const MASS: f32 = ${SIM_CONFIG.MASS};
 const REST_DENSITY: f32 = ${derived.restDensity};
+const MASS_OVER_REST: f32 = ${SIM_CONFIG.MASS / derived.restDensity};
 const LAMBDA_EPS: f32 = ${SIM_CONFIG.LAMBDA_EPS};
 const DELTA_RELAXATION: f32 = ${SIM_CONFIG.DELTA_RELAXATION};
 const MAX_DELTA: f32 = ${derived.maxDelta};
 const TENSILE_K: f32 = ${SIM_CONFIG.TENSILE_K};
-const TENSILE_DQ: f32 = ${SIM_CONFIG.TENSILE_DQ};
-const TENSILE_N: f32 = ${SIM_CONFIG.TENSILE_N}.0;
+const TENSILE_WDQ: f32 = ${tensileWdq};
 const XSPH: f32 = ${SIM_CONFIG.XSPH};
 const VISCOSITY: f32 = ${SIM_CONFIG.VISCOSITY};
 const VELOCITY_DAMPING: f32 = ${SIM_CONFIG.VELOCITY_DAMPING};
@@ -29,6 +38,7 @@ const FOAM_LIFETIME: f32 = ${SIM_CONFIG.FOAM_LIFETIME};
 const HASH_CELL_SIZE: f32 = ${derived.hashCellSize};
 const HASH_WIDTH: i32 = ${derived.hashWidth};
 const HASH_HEIGHT: i32 = ${derived.hashHeight};
+const NUM_HASH_CELLS: u32 = ${numHashCells}u;
 const PARTICLE_MAX_X: f32 = ${maxX};
 const PARTICLE_MIN_Y: f32 = ${minY};
 const PARTICLE_MAX_Y: f32 = ${maxY};
@@ -36,6 +46,8 @@ const PISTON_Y_MIN: f32 = ${pistonYMin};
 const PISTON_Y_MAX: f32 = ${pistonYMax};
 const PISTON_TIP_MIN_OFFSET: f32 = ${SIM_CONFIG.PISTON_TIP_MIN_OFFSET};
 const PISTON_TIP_MAX_OFFSET: f32 = ${SIM_CONFIG.PISTON_TIP_MAX_OFFSET};
+const POLY6_COEF: f32 = ${poly6Coef};
+const SPIKY_COEF: f32 = ${spikyCoef};
 const PI: f32 = 3.141592653589793;
 
 struct PbfUniforms {
@@ -60,14 +72,15 @@ struct PbfUniforms {
 fn poly6(r2: f32) -> f32 {
   if (r2 >= H2) { return 0.0; }
   let a = H2 - r2;
-  return 4.0 / (PI * pow(H, 8.0)) * a * a * a;
+  return POLY6_COEF * a * a * a;
 }
 
 fn spiky_grad(r: vec2f) -> vec2f {
-  let rLen = length(r);
-  if (rLen <= 1e-6 || rLen >= H) { return vec2f(0.0); }
+  let r2 = dot(r, r);
+  if (r2 >= H2 || r2 <= 1e-12) { return vec2f(0.0); }
+  let rLen = sqrt(r2);
   let a = H - rLen;
-  return (-30.0 / (PI * pow(H, 5.0))) * a * a * (r / rLen);
+  return SPIKY_COEF * a * a * (r / rLen);
 }
 
 fn cell_coord(p: vec2f) -> vec2i {
@@ -79,6 +92,18 @@ fn cell_coord(p: vec2f) -> vec2i {
 
 fn cell_index(c: vec2i) -> u32 {
   return u32(c.y * HASH_WIDTH + c.x);
+}
+
+fn neighbor_row_range(ci: vec2i, oy: i32) -> vec2u {
+  let y = ci.y + oy;
+  if (y < 0 || y >= HASH_HEIGHT) {
+    return vec2u(0u, 0u);
+  }
+  let x0 = max(ci.x - 1, 0);
+  let x1 = min(ci.x + 1, HASH_WIDTH - 1);
+  let startCell = cell_index(vec2i(x0, y));
+  let endCell = cell_index(vec2i(x1, y));
+  return vec2u(startCell, endCell + 1u);
 }
 
 fn segment_closest(p: vec2f, a: vec2f, b: vec2f) -> vec2f {

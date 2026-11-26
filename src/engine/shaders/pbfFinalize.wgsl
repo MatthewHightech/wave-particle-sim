@@ -2,9 +2,9 @@
 @group(0) @binding(1) var<storage, read_write> pos: array<vec2f>;
 @group(0) @binding(2) var<storage, read_write> vel: array<vec2f>;
 @group(0) @binding(3) var<storage, read> predicted: array<vec2f>;
-@group(0) @binding(4) var<storage, read_write> cellCounts: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read> cellStarts: array<u32>;
-@group(0) @binding(6) var<storage, read> cellParticles: array<u32>;
+@group(0) @binding(4) var<storage, read> cellStarts: array<u32>;
+@group(0) @binding(5) var<storage, read> cellParticles: array<u32>;
+@group(0) @binding(6) var<storage, read> sortedPredicted: array<vec2f>;
 @group(0) @binding(7) var<storage, read> boundaryVel: array<vec2f>;
 @group(0) @binding(8) var<storage, read_write> foam: array<f32>;
 
@@ -13,8 +13,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= params.numParticles) { return; }
 
+  let invDt = 1.0 / max(params.dt, 1e-8);
   var newPos = predicted[i];
-  var newVel = (newPos - pos[i]) / max(params.dt, 1e-8);
+  var newVel = (newPos - pos[i]) * invDt;
 
   let ci = cell_coord(newPos);
   var xsph = vec2f(0.0);
@@ -22,50 +23,47 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var wSum = 0.0;
   var maxClosing = 0.0;
 
-  for (var ox = -1; ox <= 1; ox++) {
-    for (var oy = -1; oy <= 1; oy++) {
-      let nc = ci + vec2i(ox, oy);
-      if (nc.x < 0 || nc.y < 0 || nc.x >= HASH_WIDTH || nc.y >= HASH_HEIGHT) {
-        continue;
+  for (var oy = -1; oy <= 1; oy++) {
+    let row = neighbor_row_range(ci, oy);
+    if (row.x >= row.y) { continue; }
+
+    let start = cellStarts[row.x];
+    let end = cellStarts[row.y];
+    for (var slot = start; slot < end; slot++) {
+      let j = cellParticles[slot];
+      if (j == i) { continue; }
+
+      let r = newPos - sortedPredicted[slot];
+      let r2 = dot(r, r);
+      if (r2 >= H2) { continue; }
+
+      let a = H2 - r2;
+      let w = POLY6_COEF * a * a * a;
+
+      var vj = vec2f(0.0);
+      if (j < params.numParticles) {
+        vj = (sortedPredicted[slot] - pos[j]) * invDt;
+      } else {
+        vj = boundaryVel[j - params.numParticles];
       }
 
-      let nIdx = cell_index(nc);
-      let start = cellStarts[nIdx];
-      let count = atomicLoad(&cellCounts[nIdx]);
-      for (var s = 0u; s < count; s++) {
-        let j = cellParticles[start + s];
-        if (j == i) { continue; }
+      let vji = vj - newVel;
+      xsph += vji * w;
+      wSum += w;
 
-        let r = newPos - predicted[j];
-        let r2 = dot(r, r);
-        let w = poly6(r2);
-        if (w <= 0.0) { continue; }
-
-        var vj = vec2f(0.0);
-        if (j < params.numParticles) {
-          vj = (predicted[j] - pos[j]) / max(params.dt, 1e-8);
-        } else {
-          vj = boundaryVel[j - params.numParticles];
+      let rLen = sqrt(r2);
+      if (rLen > 1e-6) {
+        let rHat = r / rLen;
+        let closing = dot(vji, r);
+        if (closing < 0.0) {
+          visc += (closing / rLen) * rHat * w;
         }
 
-        let vji = vj - newVel;
-        xsph += vji * w;
-        wSum += w;
-
-        let rLen = sqrt(r2);
-        if (rLen > 1e-6) {
-          let rHat = r / rLen;
-          let closing = dot(vji, r);
-          if (closing < 0.0) {
-            visc += (closing / rLen) * rHat * w;
-          }
-
-          let approach = -min(dot(newVel - vj, rHat), 0.0);
-          if (j < params.numParticles) {
-            maxClosing = max(maxClosing, approach);
-          } else {
-            maxClosing = max(maxClosing, approach * 0.6);
-          }
+        let approach = -min(dot(newVel - vj, rHat), 0.0);
+        if (j < params.numParticles) {
+          maxClosing = max(maxClosing, approach);
+        } else {
+          maxClosing = max(maxClosing, approach * 0.6);
         }
       }
     }

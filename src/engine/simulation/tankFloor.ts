@@ -113,27 +113,103 @@ export function clampFloorShape(
   };
 }
 
+function remapFloorAxis(
+  value: number,
+  oldMin: number,
+  oldMax: number,
+  newMin: number,
+  newMax: number
+): number {
+  const oldSpan = Math.max(oldMax - oldMin, 1e-6);
+  const t = (value - oldMin) / oldSpan;
+  return newMin + t * (newMax - newMin);
+}
+
+export function remapFloorShape(
+  shape: FloorShape,
+  oldBoundary: number,
+  newBoundary: number
+): FloorShape {
+  if (oldBoundary === newBoundary) {
+    return clampFloorShape(shape, newBoundary);
+  }
+
+  const oldBase = floorBaseY(oldBoundary);
+  const newBase = floorBaseY(newBoundary);
+  const dy = newBase - oldBase;
+  const oldMinX = floorMinPivotX(oldBoundary);
+  const oldMaxX = floorMaxX(oldBoundary);
+  const newMinX = floorMinPivotX(newBoundary);
+  const newMaxX = floorMaxX(newBoundary);
+
+  return clampFloorShape(
+    {
+      pivotX: remapFloorAxis(shape.pivotX, oldMinX, oldMaxX, newMinX, newMaxX),
+      midX: remapFloorAxis(shape.midX, oldMinX, oldMaxX, newMinX, newMaxX),
+      midY: shape.midY + dy,
+      rightY: shape.rightY + dy,
+    },
+    newBoundary
+  );
+}
+
+function floorHeightAtClamped(
+  x: number,
+  boundary: number,
+  shape: FloorShape
+): number {
+  const pivotX = shape.pivotX;
+  const pivotY = floorBaseY(boundary);
+  const midX = shape.midX;
+  const midY = shape.midY;
+  const rightX = floorMaxX(boundary);
+  const rightY = shape.rightY;
+
+  if (x <= pivotX) {
+    return pivotY;
+  }
+  if (x <= midX) {
+    const span = Math.max(midX - pivotX, 1e-6);
+    const t = Math.min(1, Math.max(0, (x - pivotX) / span));
+    return pivotY + (midY - pivotY) * t;
+  }
+  const span = Math.max(rightX - midX, 1e-6);
+  const t = Math.min(1, Math.max(0, (x - midX) / span));
+  return midY + (rightY - midY) * t;
+}
+
+function floorNormalAtClamped(
+  x: number,
+  boundary: number,
+  shape: FloorShape
+): FloorPoint {
+  const pivotX = shape.pivotX;
+  const pivotY = floorBaseY(boundary);
+  const midX = shape.midX;
+  const midY = shape.midY;
+  const rightX = floorMaxX(boundary);
+  const rightY = shape.rightY;
+
+  if (x <= pivotX) {
+    return { x: 0, y: 1 };
+  }
+
+  const ax = x <= midX ? pivotX : midX;
+  const ay = x <= midX ? pivotY : midY;
+  const bx = x <= midX ? midX : rightX;
+  const by = x <= midX ? midY : rightY;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: -dy / len, y: dx / len };
+}
+
 export function floorHeightAt(
   x: number,
   boundary: number,
   shape: FloorShape
 ): number {
-  const clamped = clampFloorShape(shape, boundary);
-  const pivot = floorPivotPoint(boundary, clamped.pivotX);
-  const mid = { x: clamped.midX, y: clamped.midY };
-  const right = floorRightPoint(boundary, clamped.rightY);
-
-  if (x <= pivot.x) {
-    return pivot.y;
-  }
-  if (x <= mid.x) {
-    const span = Math.max(mid.x - pivot.x, 1e-6);
-    const t = Math.min(1, Math.max(0, (x - pivot.x) / span));
-    return pivot.y + (mid.y - pivot.y) * t;
-  }
-  const span = Math.max(right.x - mid.x, 1e-6);
-  const t = Math.min(1, Math.max(0, (x - mid.x) / span));
-  return mid.y + (right.y - mid.y) * t;
+  return floorHeightAtClamped(x, boundary, clampFloorShape(shape, boundary));
 }
 
 export function floorNormalAt(
@@ -141,19 +217,21 @@ export function floorNormalAt(
   boundary: number,
   shape: FloorShape
 ): FloorPoint {
-  const clamped = clampFloorShape(shape, boundary);
-  const pivot = floorPivotPoint(boundary, clamped.pivotX);
-  const mid = { x: clamped.midX, y: clamped.midY };
-  const right = floorRightPoint(boundary, clamped.rightY);
+  return floorNormalAtClamped(x, boundary, clampFloorShape(shape, boundary));
+}
 
-  if (x <= pivot.x) {
-    return { x: 0, y: 1 };
-  }
+export function floorHeightAtTrusted(
+  x: number,
+  boundary: number,
+  shape: FloorShape
+): number {
+  return floorHeightAtClamped(x, boundary, shape);
+}
 
-  const a = x <= mid.x ? pivot : mid;
-  const b = x <= mid.x ? mid : right;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const len = Math.hypot(dx, dy) || 1;
-  return { x: -dy / len, y: dx / len };
+export function floorNormalAtTrusted(
+  x: number,
+  boundary: number,
+  shape: FloorShape
+): FloorPoint {
+  return floorNormalAtClamped(x, boundary, shape);
 }

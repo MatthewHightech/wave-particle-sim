@@ -13,11 +13,13 @@ import { defaultParticleSpacing, spawnFluid } from './simulation/fluidSpawn';
 import {
   clampPistonTip,
   defaultPistonTip,
+  remapPistonTip,
   type PistonTip,
 } from './simulation/pistonGeometry';
 import {
   clampFloorShape,
   defaultFloorShape,
+  remapFloorShape,
   type FloorShape,
 } from './simulation/tankFloor';
 
@@ -130,7 +132,19 @@ export class Engine {
   }
 
   public setParticleSpacing(spacing: number): void {
+    const oldBoundary = deriveParticles(this.settings.particleSpacing).boundary;
+    const newBoundary = deriveParticles(spacing).boundary;
     this.settings.particleSpacing = spacing;
+    this.settings.floorShape = remapFloorShape(
+      this.settings.floorShape,
+      oldBoundary,
+      newBoundary
+    );
+    this.settings.pistonTip = remapPistonTip(
+      this.settings.pistonTip,
+      oldBoundary,
+      newBoundary
+    );
     this.reset();
   }
 

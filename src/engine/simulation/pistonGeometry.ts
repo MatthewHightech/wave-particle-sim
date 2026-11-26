@@ -59,6 +59,28 @@ export function clampPistonTip(tip: PistonTip, boundary: number): PistonTip {
   };
 }
 
+export function remapPistonTip(
+  tip: PistonTip,
+  oldBoundary: number,
+  newBoundary: number
+): PistonTip {
+  if (oldBoundary === newBoundary) {
+    return clampPistonTip(tip, newBoundary);
+  }
+
+  const oldRange = pistonHeightRange(oldBoundary);
+  const newRange = pistonHeightRange(newBoundary);
+  const oldSpan = Math.max(oldRange.yMax - oldRange.yMin, 1e-6);
+  const t = (tip.y - oldRange.yMin) / oldSpan;
+  return clampPistonTip(
+    {
+      offsetX: tip.offsetX,
+      y: newRange.yMin + t * (newRange.yMax - newRange.yMin),
+    },
+    newBoundary
+  );
+}
+
 export function defaultPistonTip(boundary: number): PistonTip {
   const { yMin } = pistonHeightRange(boundary);
   return {
@@ -69,23 +91,49 @@ export function defaultPistonTip(boundary: number): PistonTip {
   };
 }
 
-export function pistonFaceX(
+function pistonFaceXClamped(
   y: number,
   wallX: number,
   tip: PistonTip,
   boundary: number
 ): number {
   const { yMin, yMax } = pistonHeightRange(boundary);
-  const clamped = clampPistonTip(tip, boundary);
-  const tipX = wallX + clamped.offsetX;
-  if (y >= clamped.y) {
-    const span = Math.max(yMax - clamped.y, 1e-6);
-    const t = Math.min(1, Math.max(0, (y - clamped.y) / span));
+  const tipX = wallX + tip.offsetX;
+  if (y >= tip.y) {
+    const span = Math.max(yMax - tip.y, 1e-6);
+    const t = Math.min(1, Math.max(0, (y - tip.y) / span));
     return tipX + (wallX - tipX) * t;
   }
-  const span = Math.max(clamped.y - yMin, 1e-6);
-  const t = Math.min(1, Math.max(0, (clamped.y - y) / span));
+  const span = Math.max(tip.y - yMin, 1e-6);
+  const t = Math.min(1, Math.max(0, (tip.y - y) / span));
   return tipX + (wallX - tipX) * t;
+}
+
+function pistonFaceNormalClamped(
+  y: number,
+  tip: PistonTip,
+  boundary: number
+): PistonPoint {
+  const { yMin, yMax } = pistonHeightRange(boundary);
+  const along =
+    y >= tip.y
+      ? { x: -tip.offsetX, y: yMax - tip.y }
+      : { x: -tip.offsetX, y: yMin - tip.y };
+  const len = Math.hypot(along.x, along.y) || 1;
+  const normal = { x: along.y / len, y: -along.x / len };
+  if (normal.x < 0) {
+    return { x: -normal.x, y: -normal.y };
+  }
+  return normal;
+}
+
+export function pistonFaceX(
+  y: number,
+  wallX: number,
+  tip: PistonTip,
+  boundary: number
+): number {
+  return pistonFaceXClamped(y, wallX, clampPistonTip(tip, boundary), boundary);
 }
 
 export function pistonFaceNormal(
@@ -93,16 +141,22 @@ export function pistonFaceNormal(
   tip: PistonTip,
   boundary: number
 ): PistonPoint {
-  const { yMin, yMax } = pistonHeightRange(boundary);
-  const clamped = clampPistonTip(tip, boundary);
-  const along =
-    y >= clamped.y
-      ? { x: -clamped.offsetX, y: yMax - clamped.y }
-      : { x: -clamped.offsetX, y: yMin - clamped.y };
-  const len = Math.hypot(along.x, along.y) || 1;
-  const normal = { x: along.y / len, y: -along.x / len };
-  if (normal.x < 0) {
-    return { x: -normal.x, y: -normal.y };
-  }
-  return normal;
+  return pistonFaceNormalClamped(y, clampPistonTip(tip, boundary), boundary);
+}
+
+export function pistonFaceXTrusted(
+  y: number,
+  wallX: number,
+  tip: PistonTip,
+  boundary: number
+): number {
+  return pistonFaceXClamped(y, wallX, tip, boundary);
+}
+
+export function pistonFaceNormalTrusted(
+  y: number,
+  tip: PistonTip,
+  boundary: number
+): PistonPoint {
+  return pistonFaceNormalClamped(y, tip, boundary);
 }
